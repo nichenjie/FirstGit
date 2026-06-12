@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新城控股 vs 新城发展 - 金融数据分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📈 新城控股 vs 新城发展</h1>
+            <div class="header-controls">
+                <button id="refresh-btn">🔄 刷新数据</button>
+            </div>
+        </header>
+
+        <main class="content">
+            <div class="chart-container full-width">
+                <h3>收盘价走势对比</h3>
+                <div id="price-chart" class="chart"></div>
+            </div>
+
+            <div class="signal-panel" id="signal-panel">
+                <h3>📊 市值比信号</h3>
+                <div class="signal-content">
+                    <div class="signal-item low">
+                        <span class="signal-label">💚 市值比 &lt;10% 区间</span>
+                        <span class="signal-dates" id="low-signal-dates">-</span>
+                    </div>
+                    <div class="signal-item high">
+                        <span class="signal-label">❤️ 市值比 &gt;90% 区间</span>
+                        <span class="signal-dates" id="high-signal-dates">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="data-table-container">
+                <h3>数据详情（最近100条）</h3>
+                <table id="data-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>新城控股收盘价(CNY)</th>
+                            <th>新城控股市值(亿)</th>
+                            <th>新城发展收盘价(HKD)</th>
+                            <th>新城发展市值(亿HKD)</th>
+                            <th>汇率(CNY/HKD)</th>
+                            <th>新城发展人民币市值(亿)</th>
+                            <th>市值比(发展/控制)</th>
+                            <th>市值比百分位</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/charts.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
