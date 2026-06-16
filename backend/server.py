@@ -18,6 +18,9 @@ WEB_DIR = os.path.join(PROJECT_ROOT, 'web')
 app = Flask(__name__, static_folder=WEB_DIR, static_url_path='')
 CORS(app)
 
+# 数据缓存目录
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+
 # 导入数据获取模块（在设置路径之后）
 from data_fetch import (
     get_a_stock_hist, get_hk_stock_hist,
@@ -140,6 +143,74 @@ def index():
 def health():
     """健康检查"""
     return jsonify({"status": "ok"})
+
+
+@app.route('/api/refresh', methods=['POST'])
+def api_refresh():
+    """刷新所有数据并更新缓存"""
+    import subprocess
+    import json
+
+    try:
+        # 执行 data_fetch.py 获取最新数据
+        result = subprocess.run(
+            [sys.executable, os.path.join(backend_dir, 'data_fetch.py')],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
+        if result.returncode != 0:
+            return jsonify({
+                "success": False,
+                "error": result.stderr or "data_fetch.py failed"
+            }), 500
+
+        # 重新生成 embedded_data.js
+        data_dir = os.path.join(PROJECT_ROOT, 'data')
+        web_data_dir = os.path.join(WEB_DIR, 'data')
+        os.makedirs(web_data_dir, exist_ok=True)
+
+        embedded_path = os.path.join(web_data_dir, 'embedded_data.js')
+
+        a_cache = os.path.join(data_dir, 'A_601155_cache.json')
+        hk_cache = os.path.join(data_dir, 'HK_01030_cache.json')
+
+        with open(a_cache, 'r', encoding='utf-8') as f:
+            a_data = json.load(f)
+        with open(hk_cache, 'r', encoding='utf-8') as f:
+            hk_data = json.load(f)
+
+        with open(embedded_path, 'w', encoding='utf-8') as f:
+            f.write('// Embedded cache data - auto-generated\n')
+            f.write('const EMBEDDED_A_DATA = ' + json.dumps(a_data, ensure_ascii=False) + ';\n')
+            f.write('const EMBEDDED_HK_DATA = ' + json.dumps(hk_data, ensure_ascii=False) + ';\n')
+
+        # 生成汇率数据
+        exchange_cache = os.path.join(data_dir, 'exchange_rate_cache.json')
+        if os.path.exists(exchange_cache):
+            with open(exchange_cache, 'r', encoding='utf-8') as f:
+                exchange_data = json.load(f)
+            with open(embedded_path, 'a', encoding='utf-8') as f:
+                f.write('const EMBEDDED_EXCHANGE_DATA = ' + json.dumps(exchange_data, ensure_ascii=False) + ';\n')
+
+        return jsonify({
+            "success": True,
+            "message": "数据已刷新",
+            "a_count": len(a_data),
+            "hk_count": len(hk_data)
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            "success": False,
+            "error": "数据获取超时"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 if __name__ == '__main__':

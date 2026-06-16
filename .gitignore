@@ -1,28 +1,30 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
 *.egg-info/
-dist/
-build/
+venv/
 
-# Data cache
+# Data files (cached/generated)
 data/*.json
+data/*.xlsx
 !data/.gitkeep
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Logs
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
+# IDE
+.vscode/
+.idea/
+
+# Keys
+keys_debug.txt
+
+# Node (if any)
+node_modules/
+
+# Environment
+.env

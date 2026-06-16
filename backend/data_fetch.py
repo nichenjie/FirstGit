@@ -66,16 +66,24 @@ def get_a_stock_hist(code: str, period: str = "daily", start_date: str = None, e
     cached_df = load_cached_data(code, "A")
 
     try:
-        # 获取新数据
-        df = ak.stock_zh_a_hist(symbol=code, period=period, start_date=start_date, end_date=end_date, adjust="qfq")
+        # 优先使用 stock_zh_a_daily (新浪数据源)
+        df = ak.stock_zh_a_daily(symbol=f"sh{code}", adjust="qfq")
 
         if not df.empty:
+            # 转换列名
+            df = df.rename(columns={
+                'date': '日期',
+                'open': '开盘',
+                'high': '最高',
+                'low': '最低',
+                'close': '收盘',
+                'volume': '成交量',
+                'amount': '成交额'
+            })
             # 合并缓存数据，去重
             if not cached_df.empty:
-                # 确保列名一致
                 df['日期'] = pd.to_datetime(df['日期'])
                 cached_df['日期'] = pd.to_datetime(cached_df['日期'])
-                # 合并并按日期排序
                 combined = pd.concat([cached_df, df], ignore_index=True)
                 combined = combined.drop_duplicates(subset=['日期'], keep='last')
                 combined = combined.sort_values('日期').reset_index(drop=True)
@@ -86,12 +94,26 @@ def get_a_stock_hist(code: str, period: str = "daily", start_date: str = None, e
 
         return df
     except Exception as e:
-        print(f"获取A股历史数据失败: {e}")
-        # 失败时返回缓存数据
-        if not cached_df.empty:
-            print("使用缓存数据")
-            return cached_df
-        return pd.DataFrame()
+        print(f"获取A股历史数据失败(stock_zh_a_daily): {e}")
+        try:
+            # 备用：使用 stock_zh_a_hist
+            df = ak.stock_zh_a_hist(symbol=code, period=period, start_date=start_date, end_date=end_date, adjust="qfq")
+            if not df.empty:
+                if not cached_df.empty:
+                    df['日期'] = pd.to_datetime(df['日期'])
+                    cached_df['日期'] = pd.to_datetime(cached_df['日期'])
+                    combined = pd.concat([cached_df, df], ignore_index=True)
+                    combined = combined.drop_duplicates(subset=['日期'], keep='last')
+                    combined = combined.sort_values('日期').reset_index(drop=True)
+                    df = combined
+                save_cached_data(df, code, "A")
+            return df
+        except Exception as e2:
+            print(f"获取A股历史数据失败(stock_zh_a_hist): {e2}")
+            if not cached_df.empty:
+                print("使用缓存数据")
+                return cached_df
+            return pd.DataFrame()
 
 
 def get_hk_stock_hist(code: str, period: str = "daily", start_date: str = None, end_date: str = None) -> pd.DataFrame:
@@ -122,6 +144,32 @@ def get_hk_stock_hist(code: str, period: str = "daily", start_date: str = None, 
         return df
     except Exception as e:
         print(f"获取港股历史数据失败: {e}")
+        # 使用 stock_hk_daily 作为备选
+        try:
+            df = ak.stock_hk_daily(symbol=code)
+            if not df.empty:
+                # 转换列名
+                df = df.rename(columns={
+                    'date': '日期',
+                    'open': '开盘',
+                    'high': '最高',
+                    'low': '最低',
+                    'close': '收盘',
+                    'volume': '成交量',
+                    'amount': '成交额'
+                })
+                if not cached_df.empty:
+                    df['日期'] = pd.to_datetime(df['日期'])
+                    cached_df['日期'] = pd.to_datetime(cached_df['日期'])
+                    combined = pd.concat([cached_df, df], ignore_index=True)
+                    combined = combined.drop_duplicates(subset=['日期'], keep='last')
+                    combined = combined.sort_values('日期').reset_index(drop=True)
+                    df = combined
+                save_cached_data(df, code, "HK")
+                return df
+        except Exception as e2:
+            print(f"stock_hk_daily 也失败: {e2}")
+
         if not cached_df.empty:
             print("使用缓存数据")
             return cached_df
@@ -159,19 +207,49 @@ def get_exchange_rate() -> pd.DataFrame:
 
 
 def get_hkd_exchange_rate_hist() -> pd.DataFrame:
-    """获取港币兑人民币历史汇率（上交所数据）"""
-    try:
-        df = ak.stock_sgt_settlement_exchange_rate_sse()
-        # 筛选港币数据
-        hkd_df = df[df.iloc[:, 3] == 'HKD'].copy()
-        hkd_df.columns = ['日期', '买入价', '卖出价', '币种']
-        hkd_df = hkd_df[['日期', '买入价', '卖出价']]
-        hkd_df['日期'] = pd.to_datetime(hkd_df['日期']).astype(str)
-        hkd_df['汇率'] = (hkd_df['买入价'].astype(float) + hkd_df['卖出价'].astype(float)) / 2
-        return hkd_df
-    except Exception as e:
-        print(f"获取港币汇率历史失败: {e}")
-        return pd.DataFrame()
+    """获取港币兑人民币历史汇率（从本地Excel缓存读取）"""
+    cache_path = os.path.join(CACHE_DIR, 'exchange_rate_cache.json')
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            df = pd.DataFrame(data)
+            df['日期'] = pd.to_datetime(df['日期']).astype(str)
+            return df
+        except Exception as e:
+            print(f"读取汇率缓存失败: {e}")
+
+    # 如果本地缓存不存在，尝试从Excel文件读取
+    print("本地汇率缓存不存在，从Excel文件读取...")
+    all_data = []
+    for year in range(2020, 2027):
+        excel_file = os.path.join(CACHE_DIR, f'{year}汇率.xlsx')
+        if os.path.exists(excel_file):
+            try:
+                df = pd.read_excel(excel_file)
+                for _, row in df.iterrows():
+                    date = str(row.iloc[0])
+                    hkd_cny = row.iloc[5]
+                    if date and hkd_cny != '---' and pd.notna(hkd_cny):
+                        try:
+                            rate = float(hkd_cny)
+                            all_data.append({'日期': date, '汇率': rate})
+                        except:
+                            pass
+            except Exception as e:
+                print(f"读取{year}汇率文件失败: {e}")
+
+    if all_data:
+        all_data.sort(key=lambda x: x['日期'])
+        # 保存到缓存
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(all_data, f, ensure_ascii=False, indent=2)
+        df = pd.DataFrame(all_data)
+        df['日期'] = pd.to_datetime(df['日期']).astype(str)
+        return df
+
+    print("无法获取汇率数据")
+    return pd.DataFrame()
 
 
 def get_cny_hkd_rate() -> dict:

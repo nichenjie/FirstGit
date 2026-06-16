@@ -8,9 +8,56 @@ const STOCKS = {
 };
 
 const SHARE_CAPITAL = {
-    control: 22.5,
-    development: 66.72
+    control: null,  // 从历史数据获取
+    development: null
 };
+
+const MIN_GAP_DAYS = 7; // 买卖最小间隔天数
+
+// 新城控股总股本历史（亿股）
+const CTRL_SHARE_CAPITAL_HISTORY = [
+    { date: '2022-11-24', shares: 22.56 },
+    { date: '2022-08-01', shares: 22.61 },
+    { date: '2022-01-28', shares: 22.64 },
+    { date: '2021-12-15', shares: 22.60 },
+    { date: '2021-02-09', shares: 22.61 },
+    { date: '2020-11-25', shares: 22.56 },
+    { date: '2018-01-02', shares: 22.57 },
+    { date: '2017-05-19', shares: 22.58 },
+    { date: '2016-12-06', shares: 22.59 },
+    { date: '2016-04-21', shares: 22.20 },
+    { date: '2015-12-04', shares: 17.08 }
+];
+
+// 新城发展总股本历史（亿股）
+const DEV_SHARE_CAPITAL_HISTORY = [
+    { date: '2026-02-11', shares: 72.6374 },
+    { date: '2022-12-19', shares: 70.6574 },
+    { date: '2021-12-23', shares: 65.0574 },
+    { date: '2021-05-06', shares: 62.1003 },
+    { date: '2020-01-21', shares: 62.1000 },
+    { date: '2019-01-03', shares: 58.9900 }
+];
+
+function getCtrlShareCapital(date) {
+    // 数组按日期从新到旧排列，找到第一个 <= date 的记录
+    for (const record of CTRL_SHARE_CAPITAL_HISTORY) {
+        if (date >= record.date) {
+            return record.shares;
+        }
+    }
+    return CTRL_SHARE_CAPITAL_HISTORY[CTRL_SHARE_CAPITAL_HISTORY.length - 1].shares;
+}
+
+function getDevShareCapital(date) {
+    // 数组按日期从新到旧排列，找到第一个 <= date 的记录
+    for (const record of DEV_SHARE_CAPITAL_HISTORY) {
+        if (date >= record.date) {
+            return record.shares;
+        }
+    }
+    return DEV_SHARE_CAPITAL_HISTORY[DEV_SHARE_CAPITAL_HISTORY.length - 1].shares;
+}
 
 let globalData = {
     controlData: [],
@@ -24,9 +71,35 @@ const tableBody = document.getElementById('table-body');
 
 document.addEventListener('DOMContentLoaded', function() {
     chartsModule.initCharts();
-    refreshBtn.addEventListener('click', loadAllData);
+    refreshBtn.addEventListener('click', refreshData);
+    document.getElementById('update-signals-btn').addEventListener('click', updateSignalThresholds);
+    document.getElementById('smart-analysis-btn').addEventListener('click', runSmartAnalysis);
     loadAllData();
 });
+
+async function refreshData() {
+    refreshBtn.textContent = '刷新中...';
+    refreshBtn.disabled = true;
+
+    try {
+        // 先调用刷新接口更新缓存
+        const response = await fetch(`${API_BASE}/refresh`, { method: 'POST' });
+        const result = await response.json();
+
+        if (result.success) {
+            console.log(`刷新成功: A股 ${result.a_count}条, 港股 ${result.hk_count}条`);
+        } else {
+            console.warn('刷新失败:', result.error);
+        }
+    } catch (e) {
+        console.warn('刷新接口不可用，将使用离线数据');
+    }
+
+    // 重新加载数据
+    await loadAllData();
+    refreshBtn.textContent = '🔄 刷新数据';
+    refreshBtn.disabled = false;
+}
 
 async function loadAllData() {
     refreshBtn.textContent = '加载中...';
@@ -45,7 +118,10 @@ async function loadAllData() {
         // 构建按日期的汇率映射
         const rateMap = {};
         exchangeData.forEach(item => {
-            rateMap[item.date] = parseFloat(item.汇率);
+            const dateKey = item.date || item.日期;  // 兼容两种格式
+            if (dateKey) {
+                rateMap[dateKey] = parseFloat(item.汇率 || item.rate || 0.865);
+            }
         });
         globalData.exchangeRateByDate = rateMap;
 
@@ -70,15 +146,54 @@ async function loadAllData() {
 async function fetchStockData(type) {
     const stock = STOCKS[type];
     const endpoint = stock.market === 'A' ? 'stock/a' : 'stock/hk';
-    const response = await fetch(`${API_BASE}/${endpoint}/${stock.code}`);
-    const data = await response.json();
-    return data.data || [];
+
+    try {
+        const response = await fetch(`${API_BASE}/${endpoint}/${stock.code}`);
+        if (!response.ok) throw new Error('API not available');
+        const data = await response.json();
+        return data.data || [];
+    } catch (e) {
+        // API 失败时，尝试读取本地缓存文件
+        console.warn(`API fetch failed (${e.message}), trying cache file...`);
+        const cacheFile = stock.market === 'A' ? 'A_601155_cache.json' : 'HK_01030_cache.json';
+        try {
+            const cacheResponse = await fetch(`/data/${cacheFile}`);
+            if (cacheResponse.ok) {
+                const cacheData = await cacheResponse.json();
+                return formatCacheData(cacheData);
+            }
+        } catch (cacheErr) {
+            console.warn('Cache file also failed, using embedded data');
+        }
+        // 最终 fallback：使用内嵌的缓存数据
+        return formatCacheData(stock.market === 'A' ? EMBEDDED_A_DATA : EMBEDDED_HK_DATA);
+    }
+}
+
+function formatCacheData(data) {
+    if (!data || !Array.isArray(data)) return [];
+    return data.map(item => ({
+        date: item.日期 || item.date,
+        open: parseFloat(item.开盘 || item.open || 0),
+        high: parseFloat(item.最高 || item.high || 0),
+        low: parseFloat(item.最低 || item.low || 0),
+        close: parseFloat(item.收盘 || item.close || 0),
+        volume: parseFloat(item.成交量 || item.volume || 0),
+        amount: parseFloat(item.成交额 || item.amount || 0)
+    }));
 }
 
 async function fetchExchangeRateHistory() {
-    const response = await fetch(`${API_BASE}/exchange/hkd`);
-    const data = await response.json();
-    return data.data || [];
+    try {
+        const response = await fetch(`${API_BASE}/exchange/hkd`);
+        if (!response.ok) throw new Error('API not available');
+        const data = await response.json();
+        return data.data || [];
+    } catch (e) {
+        // API 失败时返回空，使用默认汇率
+        console.warn(`Exchange API failed (${e.message}), using embedded data`);
+        return EMBEDDED_EXCHANGE_DATA || [];
+    }
 }
 
 function getExchangeRate(date) {
@@ -94,22 +209,31 @@ function getExchangeRate(date) {
             return globalData.exchangeRateByDate[dates[i - 1]];
         }
     }
-    return 1.13;  // 默认汇率
+    return 0.865;  // 默认汇率
 }
 
 function calculateRatiosAndPercentile() {
     const { controlData, developmentData } = globalData;
 
+    // 按日期建立港股数据的 Map，避免 index 不对齐问题
+    const devPriceByDate = {};
+    developmentData.forEach(d => {
+        devPriceByDate[d.date] = d;
+    });
+
     const allRatios = [];
     const ratioMap = {};
 
-    controlData.forEach((ctrl, idx) => {
-        const dev = developmentData[idx];
+    controlData.forEach((ctrl) => {
+        const dev = devPriceByDate[ctrl.date];
         if (!dev) return;
 
         const rate = getExchangeRate(ctrl.date);
-        const devMarketCapCNY = (dev.close * SHARE_CAPITAL.development) / rate;
-        const controlMarketCap = ctrl.close * SHARE_CAPITAL.control;
+        const ctrlShares = getCtrlShareCapital(ctrl.date);  // 亿股
+        const devShares = getDevShareCapital(ctrl.date);  // 亿股
+        const devMarketCapHKD = dev.close * devShares;
+        const devMarketCapCNY = devMarketCapHKD * rate;
+        const controlMarketCap = ctrl.close * ctrlShares;
         const ratio = devMarketCapCNY / controlMarketCap;
 
         allRatios.push(ratio);
@@ -121,66 +245,458 @@ function calculateRatiosAndPercentile() {
 }
 
 function findExtremePeriods() {
-    const { allRatios, ratioMap } = globalData;
-    const { controlData } = globalData;
+    const { ratioMap } = globalData;
+    const { controlData, developmentData } = globalData;
 
-    if (allRatios.length === 0) return;
+    if (controlData.length === 0) return;
 
-    // 计算10%和90%分位数阈值
-    const sortedRatios = [...allRatios].sort((a, b) => a - b);
-    const p10Index = Math.floor(sortedRatios.length * 0.1);
-    const p90Index = Math.floor(sortedRatios.length * 0.9);
-    const threshold10 = sortedRatios[p10Index];
-    const threshold90 = sortedRatios[p90Index];
+    const lowThresholdPct = parseInt(document.getElementById('low-threshold').value) || 10;
+    const highThresholdPct = parseInt(document.getElementById('high-threshold').value) || 90;
+    const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
 
-    // 找出 <10% 和 >90% 的区间
-    const lowPeriods = [];
-    const highPeriods = [];
-    let lowStart = null;
-    let highStart = null;
+    // 更新显示的阈值
+    document.getElementById('low-threshold-val').textContent = lowThresholdPct;
+    document.getElementById('high-threshold-val').textContent = highThresholdPct;
 
-    controlData.forEach((ctrl, idx) => {
+    // 根据选择的时间范围过滤数据
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+
+    // 构建符合时间范围的数据
+    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
+    const periodRatios = [];
+    periodData.forEach(ctrl => {
+        const ratio = ratioMap[ctrl.date];
+        if (ratio !== undefined) periodRatios.push(ratio);
+    });
+
+    if (periodRatios.length === 0) return;
+
+    // 计算对应百分位的ratio阈值
+    const sortedRatios = [...periodRatios].sort((a, b) => a - b);
+    const lowIdx = Math.floor(sortedRatios.length * lowThresholdPct / 100);
+    const highIdx = Math.floor(sortedRatios.length * highThresholdPct / 100);
+    const thresholdLow = sortedRatios[Math.min(lowIdx, sortedRatios.length - 1)];
+    const thresholdHigh = sortedRatios[Math.min(highIdx, sortedRatios.length - 1)];
+
+    // 信号点：交替出现买入和卖出
+    const signals = [];
+    let lastSignal = null; // null | 'buy' | 'sell'
+    let lastSignalDate = null;
+
+    periodData.forEach((ctrl) => {
         const ratio = ratioMap[ctrl.date];
         if (ratio === undefined) return;
 
-        // <10% 区间
-        if (ratio < threshold10) {
-            if (!lowStart) lowStart = ctrl.date;
-        } else {
-            if (lowStart) {
-                lowPeriods.push({ start: lowStart, end: ctrl.date });
-                lowStart = null;
-            }
-        }
+        // 确定当前所在区域
+        let zone = 'middle';
+        if (ratio < thresholdLow) zone = 'below';
+        else if (ratio > thresholdHigh) zone = 'above';
 
-        // >90% 区间
-        if (ratio > threshold90) {
-            if (!highStart) highStart = ctrl.date;
-        } else {
-            if (highStart) {
-                highPeriods.push({ start: highStart, end: ctrl.date });
-                highStart = null;
+        const ctrlDate = ctrl.date;
+
+        if (lastSignal === null) {
+            // 初始状态：等待第一个买入信号
+            if (zone === 'below') {
+                signals.push({ date: ctrlDate, type: 'buy', ratio });
+                lastSignal = 'buy';
+                lastSignalDate = ctrlDate;
+            }
+        } else if (lastSignal === 'buy') {
+            // 持有多头，等待卖出信号（必须从中间区或买入区涨到高于Y%）
+            if (zone === 'above') {
+                const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
+                if (gap >= MIN_GAP_DAYS) {
+                    signals.push({ date: ctrlDate, type: 'sell', ratio });
+                    lastSignal = 'sell';
+                    lastSignalDate = ctrlDate;
+                }
+            }
+        } else if (lastSignal === 'sell') {
+            // 空仓，等待买入信号（必须从中间区或卖出区跌到低于X%）
+            if (zone === 'below') {
+                const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
+                if (gap >= MIN_GAP_DAYS) {
+                    signals.push({ date: ctrlDate, type: 'buy', ratio });
+                    lastSignal = 'buy';
+                    lastSignalDate = ctrlDate;
+                }
             }
         }
     });
 
-    if (lowStart) lowPeriods.push({ start: lowStart, end: controlData[controlData.length - 1].date });
-    if (highStart) highPeriods.push({ start: highStart, end: controlData[controlData.length - 1].date });
+    // 渲染信号（按钮形式，点击跳转图表）
+    const typeLabel = { buy: '买入发展/卖出控股', sell: '卖出发展/买入控股' };
+    const typeClass = { buy: 'low', sell: 'high' };
+    document.getElementById('signal-dates').innerHTML =
+        signals.length > 0
+            ? signals.map(s => `<button class="period-tag ${typeClass[s.type]}" onclick="chartsModule.scrollChartToDate('${s.date}')">${typeLabel[s.type]}: ${s.date}</button>`).join('')
+            : '<span class="no-data">无信号</span>';
 
-    // 渲染极端区间
-    document.getElementById('low-signal-dates').textContent =
-        lowPeriods.length > 0 ? lowPeriods.map(p => `${p.start} ~ ${p.end}`).join('; ') : '无';
+    // 计算买卖区间的涨跌幅和超额收益
+    renderSignalReturns(signals, developmentData, controlData, ratioMap, {
+        thresholdLow, thresholdHigh, sortedRatios, periodRatios, lowThresholdPct, highThresholdPct
+    });
+}
 
-    document.getElementById('high-signal-dates').textContent =
-        highPeriods.length > 0 ? highPeriods.map(p => `${p.start} ~ ${p.end}`).join('; ') : '无';
+function renderSignalReturns(signals, developmentData, controlData, ratioMap, opts) {
+    const container = document.getElementById('signal-returns-content');
+    if (!container) return;
+
+    // 建立价格查找表
+    const ctrlPriceByDate = {};
+    controlData.forEach(d => { ctrlPriceByDate[d.date] = d.close; });
+    const devPriceByDate = {};
+    developmentData.forEach(d => { devPriceByDate[d.date] = d.close; });
+
+    let html = '';
+    let i = 0;
+
+    let totalCtrlReturn = 0;
+    let totalDevReturn = 0;
+    let totalExcessReturn = 0;
+    let completedPairs = 0;
+
+    // 计算当前最新 ratio 及其百分位（用于未平仓距离）
+    let currentRatio = null;
+    let currentRatioPercentile = null;
+    if (controlData.length > 0) {
+        const latestCtrl = controlData[controlData.length - 1];
+        currentRatio = ratioMap[latestCtrl.date];
+        if (currentRatio && opts && opts.sortedRatios) {
+            currentRatioPercentile = opts.sortedRatios.filter(r => r <= currentRatio).length / opts.sortedRatios.length * 100;
+        }
+    }
+
+    // 未平仓时，在最顶部显示距离下一次交易的信息
+    let topBanner = '';
+    const lastSig = signals.length > 0 ? signals[signals.length - 1] : null;
+    if (lastSig && (lastSig.type === 'buy' || lastSig.type === 'sell') && opts) {
+        if (lastSig.type === 'buy') {
+            const targetPct = opts.highThresholdPct || 90;
+            if (currentRatioPercentile !== null) {
+                const diff = targetPct - currentRatioPercentile;
+                if (diff > 0) {
+                    topBanner = `<div class="distance-banner pending"><span class="banner-label">📍 当前持仓中（买入发展）</span><span class="banner-distance">距触发卖出还差 <strong>${diff.toFixed(1)}%</strong> 百分位（当前 ${currentRatioPercentile.toFixed(1)}%，需升至 ${targetPct}%）</span></div>`;
+                } else {
+                    topBanner = `<div class="distance-banner ready"><span class="banner-label">📍 当前持仓中（买入发展）</span><span class="banner-distance">已高于卖出阈值 ${targetPct}%！可考虑卖出</span></div>`;
+                }
+            }
+        } else {
+            const targetPct = opts.lowThresholdPct || 10;
+            if (currentRatioPercentile !== null) {
+                const diff = currentRatioPercentile - targetPct;
+                if (diff > 0) {
+                    topBanner = `<div class="distance-banner pending"><span class="banner-label">📍 当前空仓中（卖出发展）</span><span class="banner-distance">距触发买入还差 <strong>${diff.toFixed(1)}%</strong> 百分位（当前 ${currentRatioPercentile.toFixed(1)}%，需降至 ${targetPct}%）</span></div>`;
+                } else {
+                    topBanner = `<div class="distance-banner ready"><span class="banner-label">📍 当前空仓中（卖出发展）</span><span class="banner-distance">已低于买入阈值 ${targetPct}%！可考虑买入</span></div>`;
+                }
+            }
+        }
+    }
+
+    html = topBanner;
+
+    while (i < signals.length) {
+        const sig = signals[i];
+        if (sig.type === 'buy' && i + 1 < signals.length) {
+            // 配对买入和卖出
+            const buySig = sig;
+            const sellSig = signals[i + 1];
+
+            const ctrlBuy = ctrlPriceByDate[buySig.date];
+            const ctrlSell = ctrlPriceByDate[sellSig.date];
+            const devBuy = devPriceByDate[buySig.date];
+            const devSell = devPriceByDate[sellSig.date];
+
+            if (ctrlBuy && ctrlSell && devBuy && devSell) {
+                const ctrlReturn = (ctrlSell - ctrlBuy) / ctrlBuy * 100;
+                const devReturn = (devSell - devBuy) / devBuy * 100;
+                const excessReturn = devReturn - ctrlReturn;
+
+                // 累计复利计算
+                totalCtrlReturn = (1 + totalCtrlReturn / 100) * (1 + ctrlReturn / 100) * 100 - 100;
+                totalDevReturn = (1 + totalDevReturn / 100) * (1 + devReturn / 100) * 100 - 100;
+                totalExcessReturn = (1 + totalExcessReturn / 100) * (1 + excessReturn / 100) * 100 - 100;
+                completedPairs++;
+
+                const days = Math.round((new Date(sellSig.date) - new Date(buySig.date)) / (1000 * 60 * 60 * 24));
+
+                // 计算买入/卖出时的市值比百分位
+                const buyRatioPct = opts && opts.sortedRatios
+                    ? opts.sortedRatios.filter(r => r <= buySig.ratio).length / opts.sortedRatios.length * 100
+                    : null;
+                const sellRatioPct = opts && opts.sortedRatios
+                    ? opts.sortedRatios.filter(r => r <= sellSig.ratio).length / opts.sortedRatios.length * 100
+                    : null;
+
+                html += `
+                <div class="return-item">
+                    <div class="return-header">
+                        <span class="return-period">${buySig.date} → ${sellSig.date}</span>
+                        <span class="return-days">${days}天</span>
+                    </div>
+                    <div class="return-details">
+                        <div class="return-stock">
+                            <span class="stock-label">新城控股:</span>
+                            <span class="stock-price">${ctrlBuy.toFixed(2)} → ${ctrlSell.toFixed(2)}</span>
+                            <span class="stock-return ${ctrlReturn >= 0 ? 'up' : 'down'}">${ctrlReturn >= 0 ? '+' : ''}${ctrlReturn.toFixed(2)}%</span>
+                        </div>
+                        <div class="return-stock">
+                            <span class="stock-label">新城发展:</span>
+                            <span class="stock-price">${devBuy.toFixed(2)} → ${devSell.toFixed(2)}</span>
+                            <span class="stock-return ${devReturn >= 0 ? 'up' : 'down'}">${devReturn >= 0 ? '+' : ''}${devReturn.toFixed(2)}%</span>
+                        </div>
+                        <div class="return-excess">
+                            <span class="excess-label">超额收益:</span>
+                            <span class="excess-value ${excessReturn >= 0 ? 'up' : 'down'}">${excessReturn >= 0 ? '+' : ''}${excessReturn.toFixed(2)}%</span>
+                        </div>
+                    </div>
+                    <div class="return-reason">
+                        <div class="reason-row">
+                            <span class="reason-label">📌 买入:</span>
+                            <span>市值比 ${(buySig.ratio * 100).toFixed(2)}% (百分位 ${buyRatioPct ? buyRatioPct.toFixed(1) + '%' : '-'})，低于 ${buySig.ratio < (opts?.thresholdLow || 0) ? '买入阈值' : '当前最低区间'}</span>
+                        </div>
+                        <div class="reason-row">
+                            <span class="reason-label">📌 卖出:</span>
+                            <span>市值比 ${(sellSig.ratio * 100).toFixed(2)}% (百分位 ${sellRatioPct ? sellRatioPct.toFixed(1) + '%' : '-'})，高于 ${sellSig.ratio > (opts?.thresholdHigh || Infinity) ? '卖出阈值' : '当前最高区间'}</span>
+                        </div>
+                    </div>
+                </div>`;
+            }
+            i += 2;
+        } else {
+            // 无法配对的信号（最后一个买入但没有对应的卖出）
+            html += `
+            <div class="return-item unpaired ${sig.type === 'buy' ? 'position-long' : 'position-short'}">
+                <div class="unpaired-header">
+                    <span class="unpaired-title">${sig.type === 'buy' ? '买入发展/卖出控股' : '卖出发展/买入控股'}</span>
+                    <span class="unpaired-date">${sig.date}</span>
+                </div>
+            </div>`;
+            i++;
+        }
+    }
+
+    // 汇总行
+    if (completedPairs > 0) {
+        html = `
+        <div class="return-summary">
+            <div class="summary-title">区间累计收益（${completedPairs}个完整交易对）</div>
+            <div class="summary-row">
+                <span class="summary-label">新城控股:</span>
+                <span class="summary-value ${totalCtrlReturn >= 0 ? 'up' : 'down'}">${totalCtrlReturn >= 0 ? '+' : ''}${totalCtrlReturn.toFixed(2)}%</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">新城发展:</span>
+                <span class="summary-value ${totalDevReturn >= 0 ? 'up' : 'down'}">${totalDevReturn >= 0 ? '+' : ''}${totalDevReturn.toFixed(2)}%</span>
+            </div>
+            <div class="summary-row total">
+                <span class="summary-label">累计超额:</span>
+                <span class="summary-value ${totalExcessReturn >= 0 ? 'up' : 'down'}">${totalExcessReturn >= 0 ? '+' : ''}${totalExcessReturn.toFixed(2)}%</span>
+            </div>
+        </div>` + html;
+    }
+
+    container.innerHTML = html || '<span class="no-data">无完整交易区间</span>';
+}
+
+function updateSignalThresholds() {
+    findExtremePeriods();
+    updateTable();
+}
+
+async function runSmartAnalysis() {
+    const btn = document.getElementById('smart-analysis-btn');
+    const resultDiv = document.getElementById('smart-analysis-result');
+    btn.disabled = true;
+    btn.textContent = '🔍 分析中...';
+    resultDiv.innerHTML = '<span class="no-data">策略扫描中，请稍候...</span>';
+
+    await new Promise(r => setTimeout(r, 50)); // yield to render
+
+    const { controlData, developmentData, ratioMap } = globalData;
+    if (controlData.length === 0) {
+        resultDiv.innerHTML = '<span class="no-data">数据加载中，请稍候</span>';
+        btn.disabled = false;
+        btn.textContent = '🤖 智能策略分析';
+        return;
+    }
+
+    const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+
+    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
+    const periodRatios = [];
+    periodData.forEach(ctrl => {
+        const ratio = ratioMap[ctrl.date];
+        if (ratio !== undefined) periodRatios.push(ratio);
+    });
+
+    if (periodRatios.length === 0) {
+        resultDiv.innerHTML = '<span class="no-data">数据不足</span>';
+        btn.disabled = false;
+        btn.textContent = '🤖 智能策略分析';
+        return;
+    }
+
+    const sortedRatios = [...periodRatios].sort((a, b) => a - b);
+
+    // 建立价格查找表
+    const ctrlPriceByDate = {};
+    controlData.forEach(d => { ctrlPriceByDate[d.date] = d.close; });
+    const devPriceByDate = {};
+    developmentData.forEach(d => { devPriceByDate[d.date] = d.close; });
+
+    let bestLow = 10;
+    let bestHigh = 90;
+    let bestExcess = -Infinity;
+    let bestPairs = 0;
+
+    // Grid search: low from 5 to 45, high from 50 to 95
+    for (let lowPct = 5; lowPct <= 45; lowPct += 2) {
+        for (let highPct = 50; highPct <= 95; highPct += 5) {
+            if (highPct <= lowPct) continue;
+
+            const thresholdLow = sortedRatios[Math.min(Math.floor(sortedRatios.length * lowPct / 100), sortedRatios.length - 1)];
+            const thresholdHigh = sortedRatios[Math.min(Math.floor(sortedRatios.length * highPct / 100), sortedRatios.length - 1)];
+
+            const signals = [];
+            let lastSignal = null;
+            let lastSignalDate = null;
+
+            periodData.forEach((ctrl) => {
+                const ratio = ratioMap[ctrl.date];
+                if (ratio === undefined) return;
+
+                let zone = 'middle';
+                if (ratio < thresholdLow) zone = 'below';
+                else if (ratio > thresholdHigh) zone = 'above';
+
+                const ctrlDate = ctrl.date;
+
+                if (lastSignal === null) {
+                    if (zone === 'below') {
+                        signals.push({ date: ctrlDate, type: 'buy' });
+                        lastSignal = 'buy';
+                        lastSignalDate = ctrlDate;
+                    }
+                } else if (lastSignal === 'buy') {
+                    if (zone === 'above') {
+                        const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
+                        if (gap >= MIN_GAP_DAYS) {
+                            signals.push({ date: ctrlDate, type: 'sell' });
+                            lastSignal = 'sell';
+                            lastSignalDate = ctrlDate;
+                        }
+                    }
+                } else if (lastSignal === 'sell') {
+                    if (zone === 'below') {
+                        const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
+                        if (gap >= MIN_GAP_DAYS) {
+                            signals.push({ date: ctrlDate, type: 'buy' });
+                            lastSignal = 'buy';
+                            lastSignalDate = ctrlDate;
+                        }
+                    }
+                }
+            });
+
+            // 计算累计超额收益
+            let totalExcess = 0;
+            let completedPairs = 0;
+            let i = 0;
+            while (i < signals.length) {
+                const sig = signals[i];
+                if (sig.type === 'buy' && i + 1 < signals.length) {
+                    const buySig = sig;
+                    const sellSig = signals[i + 1];
+                    const ctrlBuy = ctrlPriceByDate[buySig.date];
+                    const ctrlSell = ctrlPriceByDate[sellSig.date];
+                    const devBuy = devPriceByDate[buySig.date];
+                    const devSell = devPriceByDate[sellSig.date];
+                    if (ctrlBuy && ctrlSell && devBuy && devSell) {
+                        const ctrlReturn = (ctrlSell - ctrlBuy) / ctrlBuy * 100;
+                        const devReturn = (devSell - devBuy) / devBuy * 100;
+                        const excessReturn = devReturn - ctrlReturn;
+                        totalExcess = (1 + totalExcess / 100) * (1 + excessReturn / 100) * 100 - 100;
+                        completedPairs++;
+                    }
+                    i += 2;
+                } else {
+                    break;
+                }
+            }
+
+            // 优先选择有至少2个完整交易对的策略，再比较超额收益
+            if (completedPairs >= 2 && totalExcess > bestExcess) {
+                bestExcess = totalExcess;
+                bestLow = lowPct;
+                bestHigh = highPct;
+                bestPairs = completedPairs;
+            }
+        }
+    }
+
+    if (bestPairs === 0) {
+        resultDiv.innerHTML = '<span class="no-data">未找到有效的策略（至少需要2个完整交易对）</span>';
+    } else {
+        resultDiv.innerHTML = `
+            <div class="smart-result-item">
+                <span class="smart-label">最优买入阈值:</span>
+                <span class="smart-value">低于 <strong>${bestLow}%</strong></span>
+            </div>
+            <div class="smart-result-item">
+                <span class="smart-label">最优卖出阈值:</span>
+                <span class="smart-value">高于 <strong>${bestHigh}%</strong></span>
+            </div>
+            <div class="smart-result-item">
+                <span class="smart-label">预计超额收益:</span>
+                <span class="smart-value excess ${bestExcess >= 0 ? 'up' : 'down'}">${bestExcess >= 0 ? '+' : ''}${bestExcess.toFixed(2)}%</span>
+            </div>
+            <div class="smart-result-item">
+                <span class="smart-label">完整交易对:</span>
+                <span class="smart-value">${bestPairs} 个</span>
+            </div>
+            <button id="apply-smart-btn" class="apply-btn">应用此策略</button>
+        `;
+        document.getElementById('apply-smart-btn').addEventListener('click', () => {
+            document.getElementById('low-threshold').value = bestLow;
+            document.getElementById('high-threshold').value = bestHigh;
+            updateSignalThresholds();
+            resultDiv.innerHTML = '';
+        });
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🤖 智能策略分析';
 }
 
 function updateCharts() {
     const { controlData, developmentData } = globalData;
 
-    const dates = controlData.map(d => d.date);
-    const controlPrices = controlData.map(d => d.close);
-    const developmentPrices = developmentData.map(d => d.close);
+    // 按日期建立港股数据的 Map，避免 index 不对齐问题
+    const devPriceByDate = {};
+    developmentData.forEach(d => {
+        devPriceByDate[d.date] = d.close;
+    });
+
+    // 按 A 股日期顺序，匹配对应日期的港股价格
+    const dates = [];
+    const controlPrices = [];
+    const developmentPrices = [];
+
+    controlData.forEach(ctrl => {
+        const devPrice = devPriceByDate[ctrl.date];
+        if (devPrice !== undefined) {
+            dates.push(ctrl.date);
+            controlPrices.push(ctrl.close);
+            developmentPrices.push(devPrice);
+        }
+    });
 
     chartsModule.setAllData(dates, controlPrices, developmentPrices);
 }
@@ -190,34 +706,52 @@ function updateTable() {
 
     if (allRatios.length === 0) return;
 
-    // 计算百分位阈值（只用最近3年数据）
-    const threeYearsAgo = new Date();
-    threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
-    const threeYearsAgoStr = threeYearsAgo.toISOString().split('T')[0];
+    // 获取选择的统计周期
+    const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
 
-    const recentRatios = allRatios.filter((r, i) => {
-        const date = controlData[i]?.date;
-        return date && date >= threeYearsAgoStr;
+    // 根据选择的周期过滤数据计算百分位
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+
+    // 按日期建立港股数据的 Map，避免 index 不对齐问题
+    const devPriceByDate = {};
+    developmentData.forEach(d => {
+        devPriceByDate[d.date] = d;
     });
 
-    const sortedRecent = [...recentRatios].sort((a, b) => a - b);
+    // 根据周期过滤 A 股数据（从旧到新排列）
+    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
 
-    const recentControl = [...controlData].reverse().slice(0, 100);
-    const recentDevelopment = [...developmentData].reverse().slice(0, 100);
+    // 计算周期内所有比率用于百分位计算
+    const periodRatios = [];
+    periodData.forEach(ctrl => {
+        const ratio = ratioMap[ctrl.date];
+        if (ratio !== undefined) {
+            periodRatios.push(ratio);
+        }
+    });
 
-    tableBody.innerHTML = recentControl.map((ctrl, idx) => {
-        const dev = recentDevelopment[idx];
+    const sortedPeriod = [...periodRatios].sort((a, b) => a - b);
+
+    // 反转数组，按时间倒序显示（最新在前）
+    const reversedData = [...periodData].reverse();
+
+    tableBody.innerHTML = reversedData.map((ctrl) => {
+        const dev = devPriceByDate[ctrl.date];
         if (!dev) return '';
 
         const rate = getExchangeRate(ctrl.date);
-        const devMarketCapHKD = dev.close * SHARE_CAPITAL.development;
-        const devMarketCapCNY = devMarketCapHKD / rate;
-        const controlMarketCap = ctrl.close * SHARE_CAPITAL.control;
-        const ratio = ratioMap[ctrl.date] || 0;
+        const ctrlShares = getCtrlShareCapital(ctrl.date);  // 亿股
+        const devShares = getDevShareCapital(ctrl.date);  // 亿股
+        const devMarketCapHKD = dev.close * devShares;
+        const devMarketCapCNY = devMarketCapHKD * rate;
+        const controlMarketCap = ctrl.close * ctrlShares;
+        const ratio = devMarketCapCNY / controlMarketCap;
 
-        // 计算百分位（基于3年数据）
-        const percentile = recentRatios.length > 0
-            ? recentRatios.filter(r => r <= ratio).length / recentRatios.length * 100
+        // 计算百分位（基于选择的周期数据）
+        const percentile = periodRatios.length > 0
+            ? periodRatios.filter(r => r <= ratio).length / periodRatios.length * 100
             : 50;
 
         return `

@@ -53,15 +53,28 @@ button:hover {
     width: 100%;
 }
 
+.main-layout {
+    display: flex;
+    gap: 15px;
+    height: calc(100vh - 130px);
+    overflow: hidden;
+}
+
+.left-column {
+    flex: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    min-width: 0;
+    overflow: hidden;
+}
+
 .chart-container {
     background: #16213e;
     border-radius: 12px;
     padding: 15px;
-    margin-bottom: 20px;
-}
-
-.chart-container.full-width {
-    width: 100%;
+    min-width: 0;
+    flex-shrink: 0;
 }
 
 .chart-container h3 {
@@ -71,46 +84,114 @@ button:hover {
 }
 
 .chart {
-    height: 400px;
-    margin-bottom: 30px;
+    height: 380px;
 }
 
 /* 信号面板 */
 .signal-panel {
+    flex: 2;
     background: #16213e;
     border-radius: 12px;
-    padding: 15px;
-    margin-bottom: 20px;
+    padding: 12px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
 }
 
 .signal-panel h3 {
-    margin-bottom: 15px;
+    margin-bottom: 8px;
     color: #00d9ff;
-    font-size: 16px;
+    font-size: 15px;
+    flex-shrink: 0;
+}
+
+.signal-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+.smart-result {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: #0f3460;
+    border-radius: 6px;
+    border: 1px solid #00d9ff44;
+    flex-shrink: 0;
+}
+
+.smart-result-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.smart-result-item:last-of-type {
+    margin-bottom: 8px;
+}
+
+.smart-label {
+    color: #aaa;
+    width: 100px;
+}
+
+.smart-value {
+    color: #eee;
+}
+
+.smart-value.excess {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.smart-value.excess.up {
+    color: #52c41a;
+}
+
+.smart-value.excess.down {
+    color: #ff4d4f;
+}
+
+.apply-btn {
+    padding: 6px 16px;
+    font-size: 12px;
+    background: #00d9ff;
+    color: #1a1a2e;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.apply-btn:hover {
+    background: #00b8d4;
 }
 
 .signal-content {
     display: flex;
     gap: 20px;
+    flex-shrink: 0;
 }
 
 .signal-item {
     flex: 1;
-    padding: 15px;
+    padding: 10px 12px;
     border-radius: 8px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
 }
 
-.signal-item.low {
-    background: rgba(82, 196, 26, 0.15);
-    border: 1px solid #52c41a;
-}
-
-.signal-item.high {
-    background: rgba(255, 77, 79, 0.15);
-    border: 1px solid #ff4d4f;
+.signal-item.combined {
+    background: #0f3460;
+    border: 1px solid #00d9ff33;
+    flex-shrink: 0;
 }
 
 .signal-label {
@@ -119,21 +200,405 @@ button:hover {
 }
 
 .signal-dates {
-    font-size: 13px;
+    font-size: 12px;
     color: #aaa;
-    line-height: 1.5;
+    line-height: 1.6;
+}
+
+.period-tag {
+    display: inline-block;
+    padding: 3px 8px;
+    margin: 1px 3px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    transition: opacity 0.2s;
+}
+
+.period-tag:hover {
+    opacity: 0.8;
+}
+
+.period-tag.low {
+    background: rgba(82, 196, 26, 0.25);
+    color: #52c41a;
+    border: 1px solid #52c41a;
+}
+
+.period-tag.high {
+    background: rgba(255, 77, 79, 0.25);
+    color: #ff4d4f;
+    border: 1px solid #ff4d4f;
+}
+
+.no-data {
+    color: #666;
+    font-style: italic;
+}
+
+/* 交易区间收益分析 */
+.signal-returns {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #00d9ff22;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.signal-returns h4 {
+    color: #00d9ff;
+    font-size: 13px;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+}
+
+#signal-returns-content {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+#signal-returns-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+#signal-returns-content::-webkit-scrollbar-track {
+    background: #0f3460;
+    border-radius: 3px;
+}
+
+#signal-returns-content::-webkit-scrollbar-thumb {
+    background: #00d9ff55;
+    border-radius: 3px;
+}
+
+.return-summary {
+    background: #0f3460;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    border: 1px solid #00d9ff44;
+}
+
+.summary-title {
+    font-size: 12px;
+    color: #00d9ff;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.summary-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+.summary-row.total {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid #00d9ff22;
+}
+
+.summary-label {
+    color: #aaa;
+    width: 80px;
+}
+
+.summary-value {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.summary-value.up {
+    color: #52c41a;
+}
+
+.summary-value.down {
+    color: #ff4d4f;
+}
+
+.return-item {
+    background: #0f3460;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+}
+
+.return-item.unpaired {
+    border-left: 3px solid #00d9ff;
+    padding: 10px 12px;
+}
+
+.return-item.unpaired.position-long {
+    border-left-color: #52c41a;
+}
+
+.return-item.unpaired.position-short {
+    border-left-color: #ff4d4f;
+}
+
+.unpaired-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.unpaired-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.position-long .unpaired-title {
+    color: #52c41a;
+}
+
+.position-short .unpaired-title {
+    color: #ff4d4f;
+}
+
+.unpaired-date {
+    font-size: 12px;
+    color: #888;
+}
+
+.unpaired-distance {
+    font-size: 13px;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-top: 2px;
+}
+
+.unpaired-distance.pending {
+    background: rgba(0, 217, 255, 0.1);
+    color: #00d9ff;
+}
+
+.unpaired-distance.ready {
+    background: rgba(82, 196, 26, 0.15);
+    color: #52c41a;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* 顶部持仓距离提示 */
+.distance-banner {
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.distance-banner.pending {
+    background: rgba(0, 217, 255, 0.1);
+    border: 1px solid #00d9ff55;
+}
+
+.distance-banner.ready {
+    background: rgba(82, 196, 26, 0.15);
+    border: 1px solid #52c41a55;
+    animation: pulse 2s infinite;
+}
+
+.banner-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.distance-banner.pending .banner-label {
+    color: #00d9ff;
+}
+
+.distance-banner.ready .banner-label {
+    color: #52c41a;
+}
+
+.banner-distance {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.banner-distance strong {
+    color: #00d9ff;
+    font-size: 14px;
+}
+
+.distance-banner.ready .banner-distance {
+    color: #52c41a;
+}
+
+.distance-info strong {
+    color: #00d9ff;
+}
+
+.distance-info.already-above {
+    color: #52c41a;
+}
+
+.distance-info.already-below {
+    color: #ff4d4f;
+}
+
+.return-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.return-period {
+    font-size: 12px;
+    color: #00d9ff;
+    font-weight: 600;
+}
+
+.return-days {
+    font-size: 11px;
+    color: #888;
+}
+
+.return-unpaired {
+    font-size: 11px;
+    color: #ff4d4f;
+}
+
+.return-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.return-stock {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+}
+
+.stock-label {
+    color: #aaa;
+    width: 80px;
+}
+
+.stock-price {
+    color: #eee;
+}
+
+.stock-return {
+    font-weight: 600;
+}
+
+.stock-return.up {
+    color: #52c41a;
+}
+
+.stock-return.down {
+    color: #ff4d4f;
+}
+
+.return-excess {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    margin-top: 2px;
+    padding-top: 2px;
+    border-top: 1px solid #00d9ff22;
+}
+
+.excess-label {
+    color: #aaa;
+    width: 80px;
+}
+
+.excess-value {
+    font-weight: 700;
+    font-size: 13px;
+}
+
+.excess-value.up {
+    color: #52c41a;
+}
+
+.excess-value.down {
+    color: #ff4d4f;
+}
+
+/* 交易原因说明 */
+.return-reason {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #00d9ff22;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.reason-row {
+    font-size: 11px;
+    color: #888;
+    line-height: 1.4;
+}
+
+.reason-label {
+    color: #00d9ff;
+    font-weight: 600;
+}
+
+/* 未平仓距离 */
+.return-distance {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #00d9ff22;
+}
+
+.distance-info {
+    font-size: 12px;
+    color: #888;
+}
+
+.distance-info strong {
+    color: #00d9ff;
+}
+
+.distance-info.already-above {
+    color: #52c41a;
+}
+
+.distance-info.already-below {
+    color: #ff4d4f;
 }
 
 .data-table-container {
     background: #16213e;
     border-radius: 12px;
     padding: 15px;
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .data-table-container h3 {
-    margin-bottom: 15px;
+    margin-bottom: 10px;
     color: #00d9ff;
-    font-size: 16px;
+    font-size: 14px;
+    flex-shrink: 0;
 }
 
 .data-table {
@@ -162,11 +627,6 @@ button:hover {
     background: #0f346033;
 }
 
-.data-table-container {
-    max-height: 400px;
-    overflow-y: auto;
-}
-
 .data-table-container::-webkit-scrollbar {
     width: 8px;
 }
@@ -190,6 +650,23 @@ button:hover {
 }
 
 @media (max-width: 1200px) {
+    .main-layout {
+        flex-direction: column;
+        height: auto;
+        overflow: visible;
+    }
+    .left-column {
+        flex: none;
+        width: 100%;
+    }
+    .signal-panel {
+        flex: none;
+        width: 100%;
+        overflow: visible;
+    }
+    .signal-returns {
+        overflow: visible;
+    }
     .data-table th, .data-table td {
         font-size: 12px;
         padding: 8px 4px;

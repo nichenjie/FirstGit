@@ -29,7 +29,7 @@ function createDualAxisChartOption(dates, controlPrices, developmentPrices) {
         },
         legend: {
             data: ['新城控股 (左轴)', '新城发展 (右轴)'],
-            top: 10,
+            top: 40,
             textStyle: {
                 color: '#eee'
             }
@@ -38,7 +38,7 @@ function createDualAxisChartOption(dates, controlPrices, developmentPrices) {
             left: '8%',
             right: '12%',
             bottom: '18%',
-            top: '15%'
+            top: '20%'
         },
         xAxis: {
             type: 'category',
@@ -206,8 +206,26 @@ function updateCharts() {
     setAllData(allDates, allControlPrices, allDevelopmentPrices);
 }
 
+function scrollChartToDate(dateStr) {
+    if (allDates.length === 0 || !priceChart) return;
+    const index = allDates.indexOf(dateStr);
+    if (index === -1) return;
+
+    const totalDays = allDates.length;
+    const windowSize = 30; // visible window size in days
+    const startPercent = Math.max(0, ((index - windowSize + 1) / totalDays) * 100);
+    const endPercent = Math.min(100, startPercent + (windowSize / totalDays) * 100);
+
+    priceChart.dispatchAction({
+        type: 'dataZoom',
+        start: startPercent,
+        end: endPercent
+    });
+}
+
 window.chartsModule = {
     initCharts,
     setAllData,
-    updateCharts
+    updateCharts,
+    scrollChartToDate
 };
