@@ -1,6 +1,7 @@
 // ECharts 图表配置模块
 
 let priceChart = null;
+let percentileChart = null;
 let allDates = [];
 let allControlPrices = [];
 let allDevelopmentPrices = [];
@@ -175,11 +176,163 @@ function createDualAxisChartOption(dates, controlPrices, developmentPrices) {
     };
 }
 
+// 创建市值比百分位走势图配置
+function createPercentileChartOption(percentileData, thresholds) {
+    const { dates, percentiles } = percentileData;
+    const len = dates ? dates.length : 0;
+
+    return {
+        title: {
+            text: '市值比百分位走势',
+            left: 'center',
+            textStyle: {
+                color: '#00d9ff',
+                fontSize: 16
+            }
+        },
+        tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+                let result = params[0].name + '<br/>';
+                params.forEach(p => {
+                    if (p.seriesName === '百分位') {
+                        result += `<span style="color:#ffd700">${p.seriesName}: ${p.value.toFixed(2)}%</span><br/>`;
+                    }
+                });
+                return result;
+            }
+        },
+        legend: {
+            data: ['百分位', '买入线', '卖出线'],
+            top: 35,
+            textStyle: {
+                color: '#eee',
+                fontSize: 11
+            }
+        },
+        grid: {
+            left: '8%',
+            right: '10%',
+            bottom: '15%',
+            top: '25%'
+        },
+        xAxis: {
+            type: 'category',
+            data: dates,
+            axisLabel: {
+                color: '#888',
+                rotate: 45,
+                fontSize: 9
+            },
+            axisLine: {
+                lineStyle: { color: '#00d9ff33' }
+            }
+        },
+        yAxis: {
+            type: 'value',
+            name: '百分位 (%)',
+            nameTextStyle: {
+                color: '#ffd700'
+            },
+            min: 0,
+            max: 100,
+            axisLabel: {
+                color: '#ffd700',
+                formatter: v => v.toFixed(0) + '%'
+            },
+            splitLine: {
+                lineStyle: { color: '#ffffff10' }
+            }
+        },
+        dataZoom: [
+            {
+                type: 'inside',
+                start: 0,
+                end: 100,
+                minSpan: 5
+            },
+            {
+                type: 'slider',
+                start: 0,
+                end: 100,
+                height: 20,
+                bottom: 3,
+                borderColor: '#00d9ff33',
+                backgroundColor: '#16213e',
+                fillerColor: '#ffd70020',
+                handleStyle: {
+                    color: '#ffd700'
+                },
+                textStyle: {
+                    color: '#888',
+                    fontSize: 9
+                },
+                moveHandleStyle: {
+                    color: '#ffd700'
+                }
+            }
+        ],
+        series: [
+            {
+                name: '百分位',
+                type: 'line',
+                data: percentiles,
+                smooth: true,
+                lineStyle: {
+                    color: '#ffd700',
+                    width: 2
+                },
+                areaStyle: {
+                    color: {
+                        type: 'linear',
+                        x: 0, y: 0, x2: 0, y2: 1,
+                        colorStops: [
+                            { offset: 0, color: '#ffd70030' },
+                            { offset: 1, color: '#ffd70005' }
+                        ]
+                    }
+                },
+                itemStyle: {
+                    color: '#ffd700'
+                },
+                symbol: 'circle',
+                symbolSize: 3
+            },
+            {
+                name: '买入线',
+                type: 'line',
+                data: Array(len).fill(thresholds.lowPct),
+                lineStyle: {
+                    color: '#52c41a',
+                    width: 2,
+                    type: 'dashed'
+                },
+                symbol: 'none',
+                tooltip: { show: false }
+            },
+            {
+                name: '卖出线',
+                type: 'line',
+                data: Array(len).fill(thresholds.highPct),
+                lineStyle: {
+                    color: '#ff4d4f',
+                    width: 2,
+                    type: 'dashed'
+                },
+                symbol: 'none',
+                tooltip: { show: false }
+            }
+        ]
+    };
+}
+
 function initCharts() {
     priceChart = echarts.init(document.getElementById('price-chart'));
+    percentileChart = echarts.init(document.getElementById('percentile-chart'));
 
     window.addEventListener('resize', function() {
         priceChart && priceChart.resize();
+        percentileChart && percentileChart.resize();
     });
 }
 
@@ -188,17 +341,27 @@ function setAllData(dates, controlPrices, developmentPrices) {
     allControlPrices = controlPrices;
     allDevelopmentPrices = developmentPrices;
 
-    const defaultDays = 30;
-    const totalDays = dates.length;
-    const startPercent = Math.max(0, 100 - (defaultDays / totalDays * 100));
-
     const option = createDualAxisChartOption(dates, controlPrices, developmentPrices);
-    option.dataZoom[0].start = startPercent;
+    // 数据已按周期过滤，显示全部范围
+    option.dataZoom[0].start = 0;
     option.dataZoom[0].end = 100;
-    option.dataZoom[1].start = startPercent;
+    option.dataZoom[1].start = 0;
     option.dataZoom[1].end = 100;
 
     priceChart.setOption(option);
+}
+
+function updatePercentileChart(percentileData, thresholds) {
+    if (!percentileChart || !percentileData.dates || percentileData.dates.length === 0) return;
+
+    const option = createPercentileChartOption(percentileData, thresholds);
+    // 数据已按周期过滤，显示全部范围
+    option.dataZoom[0].start = 0;
+    option.dataZoom[0].end = 100;
+    option.dataZoom[1].start = 0;
+    option.dataZoom[1].end = 100;
+
+    percentileChart.setOption(option);
 }
 
 function updateCharts() {
@@ -227,5 +390,6 @@ window.chartsModule = {
     initCharts,
     setAllData,
     updateCharts,
+    updatePercentileChart,
     scrollChartToDate
 };

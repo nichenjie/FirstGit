@@ -63,7 +63,10 @@ let globalData = {
     controlData: [],
     developmentData: [],
     exchangeRateByDate: {},  // {date: rate}
-    allRatios: []
+    allRatios: [],
+    ratioMap: {},
+    percentileData: {},
+    thresholds: { lowPct: 10, highPct: 90 }
 };
 
 const refreshBtn = document.getElementById('refresh-btn');
@@ -279,6 +282,46 @@ function findExtremePeriods() {
     const highIdx = Math.floor(sortedRatios.length * highThresholdPct / 100);
     const thresholdLow = sortedRatios[Math.min(lowIdx, sortedRatios.length - 1)];
     const thresholdHigh = sortedRatios[Math.min(highIdx, sortedRatios.length - 1)];
+
+    // 保存阈值供图表使用
+    globalData.thresholds = {
+        lowPct: lowThresholdPct,
+        highPct: highThresholdPct,
+        thresholdLow,
+        thresholdHigh
+    };
+
+    // 计算每个日期的百分位
+    const percentileMap = {};
+    periodData.forEach(ctrl => {
+        const ratio = ratioMap[ctrl.date];
+        if (ratio !== undefined) {
+            const rank = sortedRatios.filter(r => r <= ratio).length;
+            percentileMap[ctrl.date] = (rank / sortedRatios.length) * 100;
+        }
+    });
+
+    // 构建百分位数据
+    const percentiles = [];
+    const dates = [];
+    controlData.forEach(ctrl => {
+        if (percentileMap[ctrl.date] !== undefined) {
+            dates.push(ctrl.date);
+            percentiles.push(percentileMap[ctrl.date]);
+        }
+    });
+
+    // 当前最新百分位
+    const latestCtrl = controlData[controlData.length - 1];
+    const currentRatio = ratioMap[latestCtrl.date];
+    const currentPercentile = percentileMap[latestCtrl.date];
+
+    globalData.percentileData = {
+        dates,
+        percentiles,
+        currentRatio,
+        currentPercentile
+    };
 
     // 信号点：交替出现买入和卖出
     const signals = [];
@@ -504,6 +547,7 @@ function renderSignalReturns(signals, developmentData, controlData, ratioMap, op
 
 function updateSignalThresholds() {
     findExtremePeriods();
+    updateCharts();
     updateTable();
 }
 
@@ -676,7 +720,14 @@ async function runSmartAnalysis() {
 }
 
 function updateCharts() {
-    const { controlData, developmentData } = globalData;
+    const { controlData, developmentData, percentileData, thresholds } = globalData;
+
+    // 获取当前统计周期
+    const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+    const endDateStr = controlData.length > 0 ? controlData[controlData.length - 1].date : '';
 
     // 按日期建立港股数据的 Map，避免 index 不对齐问题
     const devPriceByDate = {};
@@ -684,14 +735,14 @@ function updateCharts() {
         devPriceByDate[d.date] = d.close;
     });
 
-    // 按 A 股日期顺序，匹配对应日期的港股价格
+    // 按 A 股日期顺序，匹配对应日期的港股价格，并过滤到统计周期内
     const dates = [];
     const controlPrices = [];
     const developmentPrices = [];
 
     controlData.forEach(ctrl => {
         const devPrice = devPriceByDate[ctrl.date];
-        if (devPrice !== undefined) {
+        if (devPrice !== undefined && ctrl.date >= cutoffDateStr) {
             dates.push(ctrl.date);
             controlPrices.push(ctrl.close);
             developmentPrices.push(devPrice);
@@ -699,6 +750,11 @@ function updateCharts() {
     });
 
     chartsModule.setAllData(dates, controlPrices, developmentPrices);
+
+    // 更新百分位图表（percentileData.dates 已经是周期内的数据）
+    if (percentileData.dates && percentileData.dates.length > 0) {
+        chartsModule.updatePercentileChart(percentileData, thresholds);
+    }
 }
 
 function updateTable() {

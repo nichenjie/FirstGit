@@ -14,14 +14,14 @@ body {
 .container {
     max-width: 1600px;
     margin: 0 auto;
-    padding: 20px;
+    padding: 15px 20px;
 }
 
 header {
     background: #16213e;
-    padding: 20px;
+    padding: 15px 20px;
     border-radius: 12px;
-    margin-bottom: 20px;
+    margin-bottom: 15px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -56,35 +56,40 @@ button:hover {
 .main-layout {
     display: flex;
     gap: 15px;
-    height: calc(100vh - 130px);
-    overflow: hidden;
+    overflow-y: auto;
 }
 
 .left-column {
     flex: 3;
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 12px;
     min-width: 0;
-    overflow: hidden;
 }
 
 .chart-container {
     background: #16213e;
     border-radius: 12px;
-    padding: 15px;
+    padding: 12px 15px;
     min-width: 0;
-    flex-shrink: 0;
 }
 
 .chart-container h3 {
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     color: #00d9ff;
-    font-size: 16px;
+    font-size: 15px;
 }
 
 .chart {
-    height: 380px;
+    height: 320px;
+}
+
+#percentile-chart-container {
+    min-height: 280px;
+}
+
+#percentile-chart {
+    height: 320px;
 }
 
 /* 信号面板 */
@@ -586,16 +591,17 @@ button:hover {
 .data-table-container {
     background: #16213e;
     border-radius: 12px;
-    padding: 15px;
+    padding: 12px 15px;
     flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     min-height: 0;
+    max-height: 300px;
 }
 
 .data-table-container h3 {
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     color: #00d9ff;
     font-size: 14px;
     flex-shrink: 0;
