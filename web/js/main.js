@@ -342,6 +342,54 @@ function findExtremePeriods() {
     const tier2 = { lowPct: tier2LowPct, highPct: tier2HighPct, positionRatio: tier2PositionRatio };
     const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
 
+    // 计算全局百分位（用于走势图）
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+
+    const allPeriodRatios = [];
+    controlData.forEach(ctrl => {
+        if (ctrl.date >= cutoffDateStr) {
+            const ratio = ratioMap[ctrl.date];
+            if (ratio !== undefined) allPeriodRatios.push(ratio);
+        }
+    });
+
+    if (allPeriodRatios.length === 0) return;
+
+    const sortedRatios = [...allPeriodRatios].sort((a, b) => a - b);
+
+    const percentileMap = {};
+    controlData.forEach(ctrl => {
+        if (ctrl.date >= cutoffDateStr) {
+            const ratio = ratioMap[ctrl.date];
+            if (ratio !== undefined) {
+                const rank = sortedRatios.filter(r => r <= ratio).length;
+                percentileMap[ctrl.date] = (rank / sortedRatios.length) * 100;
+            }
+        }
+    });
+
+    const percentilesAll = [];
+    const datesAll = [];
+    controlData.forEach(ctrl => {
+        if (percentileMap[ctrl.date] !== undefined) {
+            datesAll.push(ctrl.date);
+            percentilesAll.push(percentileMap[ctrl.date]);
+        }
+    });
+
+    const latestCtrl = controlData[controlData.length - 1];
+    const currentRatio = ratioMap[latestCtrl.date];
+    const currentPercentile = percentileMap[latestCtrl.date];
+
+    globalData.percentileData = {
+        dates: datesAll,
+        percentiles: percentilesAll,
+        currentRatio,
+        currentPercentile
+    };
+
     // 计算两档信号
     const tier1Result = findSignalsForTier(ratioMap, controlData, tier1, periodYears);
     const tier2Result = findSignalsForTier(ratioMap, controlData, tier2, periodYears);
@@ -353,8 +401,8 @@ function findExtremePeriods() {
     renderSignalButtons([tier1Result, tier2Result]);
 
     // 计算收益
-    renderSignalReturns(tier1Result, developmentData, controlData, ratioMap, { tier: 1, ...tier1 });
-    renderSignalReturns(tier2Result, developmentData, controlData, ratioMap, { tier: 2, ...tier2 });
+    renderSignalReturns(tier1Result, developmentData, controlData, ratioMap, { tier: 1, positionRatio: tier1.positionRatio, lowPct: tier1.lowPct, highPct: tier1.highPct, thresholdLow: tier1Result.thresholdLow, thresholdHigh: tier1Result.thresholdHigh, sortedRatios: tier1Result.sortedRatios });
+    renderSignalReturns(tier2Result, developmentData, controlData, ratioMap, { tier: 2, positionRatio: tier2.positionRatio, lowPct: tier2.lowPct, highPct: tier2.highPct, thresholdLow: tier2Result.thresholdLow, thresholdHigh: tier2Result.thresholdHigh, sortedRatios: tier2Result.sortedRatios });
 
     // 更新图表
     if (chartsModule.updateTieredChart) {
