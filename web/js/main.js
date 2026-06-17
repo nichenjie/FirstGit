@@ -329,9 +329,17 @@ function findExtremePeriods() {
     const { controlData, developmentData } = globalData;
     if (controlData.length === 0) return;
 
-    // 双档配置
-    const tier1 = { lowPct: 10, highPct: 90, positionRatio: 0.5 };
-    const tier2 = { lowPct: 5, highPct: 95, positionRatio: 1.0 };
+    // 双档配置 - 从UI输入读取
+    const tier1LowPct = parseInt(document.getElementById('low-threshold').value) || 10;
+    const tier1HighPct = parseInt(document.getElementById('high-threshold').value) || 90;
+    const tier1PositionRatio = 0.5; // primary tier always 50%
+
+    const tier2LowPct = parseInt(document.getElementById('tier2-low-threshold').value) || 5;
+    const tier2HighPct = parseInt(document.getElementById('tier2-high-threshold').value) || 95;
+    const tier2PositionRatio = (parseInt(document.getElementById('tier2-position-ratio').value) || 100) / 100;
+
+    const tier1 = { lowPct: tier1LowPct, highPct: tier1HighPct, positionRatio: tier1PositionRatio };
+    const tier2 = { lowPct: tier2LowPct, highPct: tier2HighPct, positionRatio: tier2PositionRatio };
     const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
 
     // 计算两档信号
