@@ -401,8 +401,28 @@ function findExtremePeriods() {
     renderSignalButtons([tier1Result, tier2Result]);
 
     // 计算收益
-    renderSignalReturns(tier1Result, developmentData, controlData, ratioMap, { tier: 1, positionRatio: tier1.positionRatio, lowPct: tier1.lowPct, highPct: tier1.highPct, thresholdLow: tier1Result.thresholdLow, thresholdHigh: tier1Result.thresholdHigh, sortedRatios: tier1Result.sortedRatios });
-    renderSignalReturns(tier2Result, developmentData, controlData, ratioMap, { tier: 2, positionRatio: tier2.positionRatio, lowPct: tier2.lowPct, highPct: tier2.highPct, thresholdLow: tier2Result.thresholdLow, thresholdHigh: tier2Result.thresholdHigh, sortedRatios: tier2Result.sortedRatios });
+    if (tier1Result) {
+        renderSignalReturns(tier1Result, developmentData, controlData, ratioMap, {
+            tier: 1,
+            positionRatio: tier1.positionRatio,
+            lowPct: tier1.lowPct,
+            highPct: tier1.highPct,
+            thresholdLow: tier1Result.thresholdLow,
+            thresholdHigh: tier1Result.thresholdHigh,
+            sortedRatios: tier1Result.sortedRatios
+        });
+    }
+    if (tier2Result) {
+        renderSignalReturns(tier2Result, developmentData, controlData, ratioMap, {
+            tier: 2,
+            positionRatio: tier2.positionRatio,
+            lowPct: tier2.lowPct,
+            highPct: tier2.highPct,
+            thresholdLow: tier2Result.thresholdLow,
+            thresholdHigh: tier2Result.thresholdHigh,
+            sortedRatios: tier2Result.sortedRatios
+        });
+    }
 
     // 更新图表
     if (chartsModule.updateTieredChart) {
