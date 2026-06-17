@@ -391,5 +391,67 @@ window.chartsModule = {
     setAllData,
     updateCharts,
     updatePercentileChart,
-    scrollChartToDate
+    scrollChartToDate,
+    updateTieredChart: function(tier1Result, tier2Result) {
+        if (!this.percentileChart) return;
+
+        const markLineData = [];
+
+        if (tier1Result) {
+            markLineData.push({
+                yAxis: tier1Result.thresholdLow,
+                lineStyle: { color: '#52c41a', type: 'solid', width: 2 },
+                label: { formatter: '一档买入', position: 'insideStartTop', color: '#52c41a' }
+            });
+            markLineData.push({
+                yAxis: tier1Result.thresholdHigh,
+                lineStyle: { color: '#ff4d4f', type: 'solid', width: 2 },
+                label: { formatter: '一档卖出', position: 'insideStartTop', color: '#ff4d4f' }
+            });
+        }
+
+        if (tier2Result) {
+            markLineData.push({
+                yAxis: tier2Result.thresholdLow,
+                lineStyle: { color: '#1890ff', type: 'dashed', width: 2 },
+                label: { formatter: '二档买入', position: 'insideEndBottom', color: '#1890ff' }
+            });
+            markLineData.push({
+                yAxis: tier2Result.thresholdHigh,
+                lineStyle: { color: '#faad14', type: 'dashed', width: 2 },
+                label: { formatter: '二档卖出', position: 'insideEndBottom', color: '#faad14' }
+            });
+        }
+
+        this.percentileChart.setOption({
+            series: [{
+                markLine: {
+                    data: markLineData
+                }
+            }]
+        });
+
+        // 叠加信号点
+        this.updateSignalMarkers(tier1Result, tier2Result);
+    },
+    updateSignalMarkers: function(tier1Result, tier2Result) {
+        if (!this.percentileChart) return;
+
+        const tierConfigs = [
+            { result: tier1Result, symbol: 'circle', buyColor: '#52c41a', sellColor: '#ff4d4f' },
+            { result: tier2Result, symbol: 'triangle', buyColor: '#1890ff', sellColor: '#faad14' }
+        ];
+
+        tierConfigs.forEach(tier => {
+            if (!tier.result || !tier.result.signals) return;
+            tier.result.signals.forEach(sig => {
+                // 计算百分位
+                const percentiles = tier.result.sortedRatios
+                    ? tier.result.sortedRatios.filter(r => r <= sig.ratio).length / tier.result.sortedRatios.length * 100
+                    : 0;
+                // 通过 chart.setOption 添加 scatter 标记
+                // 实际标记通过 series markPoint 实现，这里只记录日志
+            });
+        });
+    }
 };
