@@ -220,6 +220,7 @@ button:hover {
     border: none;
     font-family: inherit;
     transition: opacity 0.2s;
+    background: transparent;
 }
 
 .period-tag:hover {
@@ -676,10 +677,12 @@ button:hover {
     color: #ccc;
 }
 button.period-tag.tier2 {
+    background: #1a2e3a;
     border-color: #1890ff;
     color: #1890ff;
 }
 button.period-tag.tier1 {
+    background: #1a2e1a;
     border-color: #52c41a;
     color: #52c41a;
 }
