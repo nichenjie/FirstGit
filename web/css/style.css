@@ -655,6 +655,35 @@ button:hover {
     color: #4ecdc4;
 }
 
+.tier2-config {
+    margin-top: 8px;
+    padding: 8px;
+    background: #252540;
+    border-radius: 4px;
+}
+.tier2-config summary {
+    cursor: pointer;
+    color: #888;
+    font-size: 12px;
+}
+.config-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+}
+.config-row label {
+    font-size: 12px;
+    color: #ccc;
+}
+button.period-tag.tier2 {
+    border-color: #1890ff;
+    color: #1890ff;
+}
+button.period-tag.tier1 {
+    border-color: #52c41a;
+    color: #52c41a;
+}
+
 @media (max-width: 1200px) {
     .main-layout {
         flex-direction: column;

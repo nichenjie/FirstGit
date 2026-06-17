@@ -67,6 +67,14 @@
                         <button id="update-signals-btn">更新区间</button>
                         <button id="smart-analysis-btn">🤖 智能策略分析</button>
                     </div>
+                    <details class="tier2-config">
+                        <summary>二档设置（极值）</summary>
+                        <div class="config-row">
+                            <label>二档低阈值: <input type="number" id="tier2-low-threshold" value="5" min="1" max="45">%</label>
+                            <label>二档高阈值: <input type="number" id="tier2-high-threshold" value="95" min="50" max="99">%</label>
+                            <label>二档仓位: <input type="number" id="tier2-position-ratio" value="100" min="10" max="100">%</label>
+                        </div>
+                    </details>
                     <div id="smart-analysis-result" class="smart-result"></div>
                     <div class="signal-content">
                         <div class="signal-item combined">
