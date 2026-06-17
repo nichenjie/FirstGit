@@ -393,7 +393,7 @@ window.chartsModule = {
     updatePercentileChart,
     scrollChartToDate,
     updateTieredChart: function(tier1Result, tier2Result) {
-        if (!this.percentileChart) return;
+        if (!percentileChart) return;
 
         const markLineData = [];
 
@@ -423,7 +423,7 @@ window.chartsModule = {
             });
         }
 
-        this.percentileChart.setOption({
+        percentileChart.setOption({
             series: [{
                 markLine: {
                     data: markLineData
@@ -432,26 +432,11 @@ window.chartsModule = {
         });
 
         // 叠加信号点
-        this.updateSignalMarkers(tier1Result, tier2Result);
+        chartsModule.updateSignalMarkers(tier1Result, tier2Result);
     },
     updateSignalMarkers: function(tier1Result, tier2Result) {
-        if (!this.percentileChart) return;
-
-        const tierConfigs = [
-            { result: tier1Result, symbol: 'circle', buyColor: '#52c41a', sellColor: '#ff4d4f' },
-            { result: tier2Result, symbol: 'triangle', buyColor: '#1890ff', sellColor: '#faad14' }
-        ];
-
-        tierConfigs.forEach(tier => {
-            if (!tier.result || !tier.result.signals) return;
-            tier.result.signals.forEach(sig => {
-                // 计算百分位
-                const percentiles = tier.result.sortedRatios
-                    ? tier.result.sortedRatios.filter(r => r <= sig.ratio).length / tier.result.sortedRatios.length * 100
-                    : 0;
-                // 通过 chart.setOption 添加 scatter 标记
-                // 实际标记通过 series markPoint 实现，这里只记录日志
-            });
-        });
+        // Signal markers are complex to add as scatter series - skip for now
+        // Placeholder: actual implementation can use markPoint on a dedicated scatter series
+        return;
     }
 };
