@@ -349,7 +349,9 @@ function findExtremePeriods() {
     renderSignalReturns(tier2Result, developmentData, controlData, ratioMap, { tier: 2, ...tier2 });
 
     // 更新图表
-    chartsModule.updateTieredChart(tier1Result, tier2Result);
+    if (chartsModule.updateTieredChart) {
+        chartsModule.updateTieredChart(tier1Result, tier2Result);
+    }
 }
 
 function renderSignalButtons(tierResults) {
