@@ -1,7 +1,7 @@
 // ECharts 图表配置模块
 
 let priceChart = null;
-let percentileChart = null;
+let percentileCharts = {};  // { '1': instance, '2': instance, '3': instance }
 let allDates = [];
 let allControlPrices = [];
 let allDevelopmentPrices = [];
@@ -326,13 +326,21 @@ function createPercentileChartOption(percentileData, thresholds) {
     };
 }
 
+function initColumnChart(columnId) {
+    const dom = document.getElementById(`percentile-chart-${columnId}`);
+    if (!dom) return;
+    percentileCharts[columnId] = echarts.init(dom);
+}
+
 function initCharts() {
     priceChart = echarts.init(document.getElementById('price-chart'));
-    percentileChart = echarts.init(document.getElementById('percentile-chart'));
-
+    // 初始化3个百分位图表
+    for (let i = 1; i <= 3; i++) {
+        initColumnChart(String(i));
+    }
     window.addEventListener('resize', function() {
         priceChart && priceChart.resize();
-        percentileChart && percentileChart.resize();
+        Object.values(percentileCharts).forEach(c => c && c.resize());
     });
 }
 
@@ -351,17 +359,17 @@ function setAllData(dates, controlPrices, developmentPrices) {
     priceChart.setOption(option);
 }
 
-function updatePercentileChart(percentileData, thresholds) {
-    if (!percentileChart || !percentileData.dates || percentileData.dates.length === 0) return;
+function updateColumnChart(columnId, percentileData, thresholds) {
+    const chart = percentileCharts[columnId];
+    if (!chart || !percentileData.dates || percentileData.dates.length === 0) return;
 
     const option = createPercentileChartOption(percentileData, thresholds);
-    // 数据已按周期过滤，显示全部范围
     option.dataZoom[0].start = 0;
     option.dataZoom[0].end = 100;
     option.dataZoom[1].start = 0;
     option.dataZoom[1].end = 100;
 
-    percentileChart.setOption(option);
+    chart.setOption(option);
 }
 
 function updateCharts() {
@@ -388,55 +396,9 @@ function scrollChartToDate(dateStr) {
 
 window.chartsModule = {
     initCharts,
-    setAllData,
+    setAllData,        // 顶部价格图
     updateCharts,
-    updatePercentileChart,
+    updateColumnChart,  // 新增：更新指定栏的百分位图
     scrollChartToDate,
-    updateTieredChart: function(tier1Result, tier2Result) {
-        if (!percentileChart) return;
-
-        const markLineData = [];
-
-        if (tier1Result) {
-            markLineData.push({
-                yAxis: tier1Result.thresholdLow,
-                lineStyle: { color: '#52c41a', type: 'solid', width: 2 },
-                label: { formatter: '一档买入', position: 'insideStartTop', color: '#52c41a' }
-            });
-            markLineData.push({
-                yAxis: tier1Result.thresholdHigh,
-                lineStyle: { color: '#ff4d4f', type: 'solid', width: 2 },
-                label: { formatter: '一档卖出', position: 'insideStartTop', color: '#ff4d4f' }
-            });
-        }
-
-        if (tier2Result) {
-            markLineData.push({
-                yAxis: tier2Result.thresholdLow,
-                lineStyle: { color: '#1890ff', type: 'dashed', width: 2 },
-                label: { formatter: '二档买入', position: 'insideEndBottom', color: '#1890ff' }
-            });
-            markLineData.push({
-                yAxis: tier2Result.thresholdHigh,
-                lineStyle: { color: '#faad14', type: 'dashed', width: 2 },
-                label: { formatter: '二档卖出', position: 'insideEndBottom', color: '#faad14' }
-            });
-        }
-
-        percentileChart.setOption({
-            series: [{
-                markLine: {
-                    data: markLineData
-                }
-            }]
-        });
-
-        // 叠加信号点
-        chartsModule.updateSignalMarkers(tier1Result, tier2Result);
-    },
-    updateSignalMarkers: function(tier1Result, tier2Result) {
-        // Signal markers are complex to add as scatter series - skip for now
-        // Placeholder: actual implementation can use markPoint on a dedicated scatter series
-        return;
-    }
+    // 移除 updateTieredChart, updateSignalMarkers
 };
