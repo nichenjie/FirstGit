@@ -72,13 +72,513 @@ let globalData = {
 const refreshBtn = document.getElementById('refresh-btn');
 const tableBody = document.getElementById('table-body');
 
+// ============================================================
+// ColumnManager 类
+// ============================================================
+class ColumnManager {
+    constructor(columnId) {
+        this.columnId = columnId;
+        this.periodSelect = document.querySelector(`.period-select[data-column="${columnId}"]`);
+        this.lowInput = document.querySelector(`.low-threshold[data-column="${columnId}"]`);
+        this.highInput = document.querySelector(`.high-threshold[data-column="${columnId}"]`);
+        this.smartBtn = document.querySelector(`.smart-analysis-btn[data-column="${columnId}"]`);
+        this.smartResult = document.querySelector(`.smart-result[data-column="${columnId}"]`);
+        this.signalDates = document.querySelector(`.signal-dates[data-column="${columnId}"]`);
+        this.signalReturnsContent = document.querySelector(`.signal-returns[data-column="${columnId}"] .signal-returns-content`);
+
+        this.bindEvents();
+    }
+
+    bindEvents() {
+        this.periodSelect.addEventListener('change', () => this.refresh());
+        this.lowInput.addEventListener('input', () => this.refresh());
+        this.highInput.addEventListener('input', () => this.refresh());
+        this.smartBtn.addEventListener('click', () => this.runSmartAnalysis());
+    }
+
+    getParams() {
+        const periodYears = parseFloat(this.periodSelect.value) || 3;
+        const lowPct = parseInt(this.lowInput.value) || 10;
+        const highPct = parseInt(this.highInput.value) || 90;
+        return { periodYears, lowPct, highPct };
+    }
+
+    refresh() {
+        const { periodYears, lowPct, highPct } = this.getParams();
+        const result = findSignalsForColumn(this.columnId, periodYears, lowPct, highPct);
+        this.render(result);
+    }
+
+    render(result) {
+        if (!result) return;
+
+        chartsModule.updateColumnChart(this.columnId, result.percentileData, {
+            lowPct: result.thresholdLow,
+            highPct: result.thresholdHigh
+        });
+
+        this.renderSignalDates(result.signals);
+        this.renderReturns(result);
+    }
+
+    renderSignalDates(signals) {
+        const tierClass = { buy: 'low', sell: 'high' };
+        let html = '';
+        signals.forEach(sig => {
+            const label = sig.type === 'buy' ? '买入' : '卖出';
+            html += `<button class="period-tag ${tierClass[sig.type]}" onclick="chartsModule.scrollChartToDate('${sig.date}')">${label}: ${sig.date}</button>`;
+        });
+        this.signalDates.innerHTML = html || '<span class="no-data">无信号</span>';
+    }
+
+    renderReturns(result) {
+        renderSignalReturnsForColumn(this.columnId, result, globalData.developmentData, globalData.controlData, globalData.ratioMap);
+    }
+
+    async runSmartAnalysis() {
+        const btn = this.smartBtn;
+        btn.disabled = true;
+        btn.textContent = '🔍 分析中...';
+        this.smartResult.innerHTML = '<span class="no-data">策略扫描中，请稍候...</span>';
+
+        await new Promise(r => setTimeout(r, 50));
+
+        const { periodYears } = this.getParams();
+        const analysis = analyzeForColumn(this.columnId, periodYears);
+
+        if (!analysis.found) {
+            this.smartResult.innerHTML = '<span class="no-data">未找到有效的策略（至少需要2个完整交易对）</span>';
+        } else {
+            this.smartResult.innerHTML = `
+                <div class="smart-result-item">
+                    <span class="smart-label">最优买入阈值:</span>
+                    <span class="smart-value">低于 <strong>${analysis.bestLow}%</strong></span>
+                </div>
+                <div class="smart-result-item">
+                    <span class="smart-label">最优卖出阈值:</span>
+                    <span class="smart-value">高于 <strong>${analysis.bestHigh}%</strong></span>
+                </div>
+                <div class="smart-result-item">
+                    <span class="smart-label">预计超额收益:</span>
+                    <span class="smart-value excess ${analysis.bestExcess >= 0 ? 'up' : 'down'}">${analysis.bestExcess >= 0 ? '+' : ''}${analysis.bestExcess.toFixed(2)}%</span>
+                </div>
+                <div class="smart-result-item">
+                    <span class="smart-label">完整交易对:</span>
+                    <span class="smart-value">${analysis.bestPairs} 个</span>
+                </div>
+                <button class="apply-btn" data-column="${this.columnId}" data-low="${analysis.bestLow}" data-high="${analysis.bestHigh}">应用此策略</button>
+            `;
+            this.smartResult.querySelector('.apply-btn').addEventListener('click', (e) => {
+                const col = e.target.dataset.column;
+                document.querySelector(`.low-threshold[data-column="${col}"]`).value = e.target.dataset.low;
+                document.querySelector(`.high-threshold[data-column="${col}"]`).value = e.target.dataset.high;
+                this.refresh();
+                this.smartResult.innerHTML = '';
+            });
+        }
+
+        btn.disabled = false;
+        btn.textContent = '🤖 智能策略分析';
+    }
+}
+
+// ============================================================
+// 新增函数
+// ============================================================
+
+function findSignalsForColumn(columnId, periodYears, lowPct, highPct) {
+    const { ratioMap } = globalData;
+    const { controlData } = globalData;
+    if (controlData.length === 0) return null;
+
+    // 计算截止日期
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+
+    // 过滤周期内的数据
+    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
+    const periodRatios = [];
+    periodData.forEach(ctrl => {
+        const ratio = ratioMap[ctrl.date];
+        if (ratio !== undefined) periodRatios.push(ratio);
+    });
+    if (periodRatios.length === 0) return null;
+
+    const sortedRatios = [...periodRatios].sort((a, b) => a - b);
+
+    // 计算阈值
+    const lowIdx = Math.floor(sortedRatios.length * lowPct / 100);
+    const highIdx = Math.floor(sortedRatios.length * highPct / 100);
+    const thresholdLow = sortedRatios[Math.min(lowIdx, sortedRatios.length - 1)];
+    const thresholdHigh = sortedRatios[Math.min(highIdx, sortedRatios.length - 1)];
+
+    // 信号检测（状态机）
+    const signals = [];
+    let lastSignal = null;
+    let lastSignalDate = null;
+
+    periodData.forEach(ctrl => {
+        const ratio = ratioMap[ctrl.date];
+        if (ratio === undefined) return;
+
+        let zone = 'middle';
+        if (ratio < thresholdLow) zone = 'below';
+        else if (ratio > thresholdHigh) zone = 'above';
+
+        if (lastSignal === null) {
+            if (zone === 'below') {
+                signals.push({ date: ctrl.date, type: 'buy', ratio });
+                lastSignal = 'buy';
+                lastSignalDate = ctrl.date;
+            }
+        } else if (lastSignal === 'buy') {
+            if (zone === 'above') {
+                const gap = Math.round((new Date(ctrl.date) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
+                if (gap >= MIN_GAP_DAYS) {
+                    signals.push({ date: ctrl.date, type: 'sell', ratio });
+                    lastSignal = 'sell';
+                    lastSignalDate = ctrl.date;
+                }
+            }
+        } else if (lastSignal === 'sell') {
+            if (zone === 'below') {
+                const gap = Math.round((new Date(ctrl.date) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
+                if (gap >= MIN_GAP_DAYS) {
+                    signals.push({ date: ctrl.date, type: 'buy', ratio });
+                    lastSignal = 'buy';
+                    lastSignalDate = ctrl.date;
+                }
+            }
+        }
+    });
+
+    // 计算百分位走势数据
+    const percentileMap = {};
+    periodData.forEach(ctrl => {
+        if (ctrl.date >= cutoffDateStr) {
+            const ratio = ratioMap[ctrl.date];
+            if (ratio !== undefined) {
+                const rank = sortedRatios.filter(r => r <= ratio).length;
+                percentileMap[ctrl.date] = (rank / sortedRatios.length) * 100;
+            }
+        }
+    });
+
+    const percentilesAll = [];
+    const datesAll = [];
+    periodData.forEach(ctrl => {
+        if (percentileMap[ctrl.date] !== undefined) {
+            datesAll.push(ctrl.date);
+            percentilesAll.push(percentileMap[ctrl.date]);
+        }
+    });
+
+    const latestCtrl = controlData[controlData.length - 1];
+    const currentRatio = ratioMap[latestCtrl.date];
+    const currentPercentile = percentileMap[latestCtrl.date];
+
+    return {
+        signals,
+        thresholdLow,
+        thresholdHigh,
+        sortedRatios,
+        periodRatios,
+        percentileData: {
+            dates: datesAll,
+            percentiles: percentilesAll,
+            currentRatio,
+            currentPercentile
+        }
+    };
+}
+
+function analyzeForColumn(columnId, periodYears) {
+    const { controlData, developmentData, ratioMap } = globalData;
+    if (controlData.length === 0) return { found: false };
+
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+
+    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
+    const periodRatios = [];
+    periodData.forEach(ctrl => {
+        const ratio = ratioMap[ctrl.date];
+        if (ratio !== undefined) periodRatios.push(ratio);
+    });
+
+    if (periodRatios.length === 0) return { found: false };
+
+    const sortedRatios = [...periodRatios].sort((a, b) => a - b);
+
+    const ctrlPriceByDate = {};
+    controlData.forEach(d => { ctrlPriceByDate[d.date] = d.close; });
+    const devPriceByDate = {};
+    developmentData.forEach(d => { devPriceByDate[d.date] = d.close; });
+
+    let bestLow = 10;
+    let bestHigh = 90;
+    let bestExcess = -Infinity;
+    let bestPairs = 0;
+
+    for (let lowPct = 5; lowPct <= 45; lowPct += 2) {
+        for (let highPct = 50; highPct <= 95; highPct += 5) {
+            if (highPct <= lowPct) continue;
+
+            const thresholdLow = sortedRatios[Math.min(Math.floor(sortedRatios.length * lowPct / 100), sortedRatios.length - 1)];
+            const thresholdHigh = sortedRatios[Math.min(Math.floor(sortedRatios.length * highPct / 100), sortedRatios.length - 1)];
+
+            const signals = [];
+            let lastSignal = null;
+            let lastSignalDate = null;
+
+            periodData.forEach((ctrl) => {
+                const ratio = ratioMap[ctrl.date];
+                if (ratio === undefined) return;
+
+                let zone = 'middle';
+                if (ratio < thresholdLow) zone = 'below';
+                else if (ratio > thresholdHigh) zone = 'above';
+
+                const ctrlDate = ctrl.date;
+
+                if (lastSignal === null) {
+                    if (zone === 'below') {
+                        signals.push({ date: ctrlDate, type: 'buy' });
+                        lastSignal = 'buy';
+                        lastSignalDate = ctrlDate;
+                    }
+                } else if (lastSignal === 'buy') {
+                    if (zone === 'above') {
+                        const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
+                        if (gap >= MIN_GAP_DAYS) {
+                            signals.push({ date: ctrlDate, type: 'sell' });
+                            lastSignal = 'sell';
+                            lastSignalDate = ctrlDate;
+                        }
+                    }
+                } else if (lastSignal === 'sell') {
+                    if (zone === 'below') {
+                        const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
+                        if (gap >= MIN_GAP_DAYS) {
+                            signals.push({ date: ctrlDate, type: 'buy' });
+                            lastSignal = 'buy';
+                            lastSignalDate = ctrlDate;
+                        }
+                    }
+                }
+            });
+
+            let totalExcess = 0;
+            let completedPairs = 0;
+            let i = 0;
+            while (i < signals.length) {
+                const sig = signals[i];
+                if (sig.type === 'buy' && i + 1 < signals.length) {
+                    const buySig = sig;
+                    const sellSig = signals[i + 1];
+                    const ctrlBuy = ctrlPriceByDate[buySig.date];
+                    const ctrlSell = ctrlPriceByDate[sellSig.date];
+                    const devBuy = devPriceByDate[buySig.date];
+                    const devSell = devPriceByDate[sellSig.date];
+                    if (ctrlBuy && ctrlSell && devBuy && devSell) {
+                        const ctrlReturn = (ctrlSell - ctrlBuy) / ctrlBuy * 100;
+                        const devReturn = (devSell - devBuy) / devBuy * 100;
+                        const excessReturn = devReturn - ctrlReturn;
+                        totalExcess = (1 + totalExcess / 100) * (1 + excessReturn / 100) * 100 - 100;
+                        completedPairs++;
+                    }
+                    i += 2;
+                } else {
+                    break;
+                }
+            }
+
+            if (completedPairs >= 2 && totalExcess > bestExcess) {
+                bestExcess = totalExcess;
+                bestLow = lowPct;
+                bestHigh = highPct;
+                bestPairs = completedPairs;
+            }
+        }
+    }
+
+    if (bestPairs === 0) return { found: false };
+    return { found: true, bestLow, bestHigh, bestExcess, bestPairs };
+}
+
+function renderSignalReturnsForColumn(columnId, tierResult, developmentData, controlData, ratioMap) {
+    const signals = tierResult ? tierResult.signals : [];
+    const container = document.querySelector(`.signal-returns[data-column="${columnId}"] .signal-returns-content`);
+    if (!container) return;
+
+    // 以下逻辑与原 renderSignalReturns 完全相同，只是 container 的获取方式不同
+    const ctrlPriceByDate = {};
+    controlData.forEach(d => { ctrlPriceByDate[d.date] = d.close; });
+    const devPriceByDate = {};
+    developmentData.forEach(d => { devPriceByDate[d.date] = d.close; });
+
+    const tierLabel = '【策略栏' + columnId + '】';
+
+    let html = '';
+    let i = 0;
+    let totalCtrlReturn = 0;
+    let totalDevReturn = 0;
+    let totalExcessReturn = 0;
+    let completedPairs = 0;
+
+    let currentRatio = null;
+    let currentRatioPercentile = null;
+    if (controlData.length > 0) {
+        const latestCtrl = controlData[controlData.length - 1];
+        currentRatio = ratioMap[latestCtrl.date];
+        if (currentRatio && tierResult && tierResult.sortedRatios) {
+            currentRatioPercentile = tierResult.sortedRatios.filter(r => r <= currentRatio).length / tierResult.sortedRatios.length * 100;
+        }
+    }
+
+    let topBanner = '';
+    const lastSig = signals.length > 0 ? signals[signals.length - 1] : null;
+    if (lastSig && (lastSig.type === 'buy' || lastSig.type === 'sell')) {
+        if (lastSig.type === 'buy') {
+            const targetPct = tierResult.thresholdHigh ? (tierResult.sortedRatios ? tierResult.sortedRatios.filter(r => r <= tierResult.thresholdHigh).length / tierResult.sortedRatios.length * 100 : 90) : 90;
+            if (currentRatioPercentile !== null) {
+                const diff = targetPct - currentRatioPercentile;
+                if (diff > 0) {
+                    topBanner = `<div class="distance-banner pending"><span class="banner-label">📍 当前持仓中（买入发展）</span><span class="banner-distance">距触发卖出还差 <strong>${diff.toFixed(1)}%</strong> 百分位</span></div>`;
+                } else {
+                    topBanner = `<div class="distance-banner ready"><span class="banner-label">📍 当前持仓中（买入发展）</span><span class="banner-distance">已高于卖出阈值！可考虑卖出</span></div>`;
+                }
+            }
+        } else {
+            const targetPct = tierResult.thresholdLow ? (tierResult.sortedRatios ? tierResult.sortedRatios.filter(r => r <= tierResult.thresholdLow).length / tierResult.sortedRatios.length * 100 : 10) : 10;
+            if (currentRatioPercentile !== null) {
+                const diff = currentRatioPercentile - targetPct;
+                if (diff > 0) {
+                    topBanner = `<div class="distance-banner pending"><span class="banner-label">📍 当前空仓中（卖出发展）</span><span class="banner-distance">距触发买入还差 <strong>${diff.toFixed(1)}%</strong> 百分位</span></div>`;
+                } else {
+                    topBanner = `<div class="distance-banner ready"><span class="banner-label">📍 当前空仓中（卖出发展）</span><span class="banner-distance">已低于买入阈值！可考虑买入</span></div>`;
+                }
+            }
+        }
+    }
+
+    html = topBanner;
+
+    while (i < signals.length) {
+        const sig = signals[i];
+        if (sig.type === 'buy' && i + 1 < signals.length) {
+            const buySig = sig;
+            const sellSig = signals[i + 1];
+            const ctrlBuy = ctrlPriceByDate[buySig.date];
+            const ctrlSell = ctrlPriceByDate[sellSig.date];
+            const devBuy = devPriceByDate[buySig.date];
+            const devSell = devPriceByDate[sellSig.date];
+
+            if (ctrlBuy && ctrlSell && devBuy && devSell) {
+                const ctrlReturn = (ctrlSell - ctrlBuy) / ctrlBuy * 100;
+                const devReturn = (devSell - devBuy) / devBuy * 100;
+                const excessReturn = devReturn - ctrlReturn;
+
+                totalCtrlReturn = (1 + totalCtrlReturn / 100) * (1 + ctrlReturn / 100) * 100 - 100;
+                totalDevReturn = (1 + totalDevReturn / 100) * (1 + devReturn / 100) * 100 - 100;
+                totalExcessReturn = (1 + totalExcessReturn / 100) * (1 + excessReturn / 100) * 100 - 100;
+                completedPairs++;
+
+                const days = Math.round((new Date(sellSig.date) - new Date(buySig.date)) / (1000 * 60 * 60 * 24));
+                const buyRatioPct = tierResult && tierResult.sortedRatios ? tierResult.sortedRatios.filter(r => r <= buySig.ratio).length / tierResult.sortedRatios.length * 100 : null;
+                const sellRatioPct = tierResult && tierResult.sortedRatios ? tierResult.sortedRatios.filter(r => r <= sellSig.ratio).length / tierResult.sortedRatios.length * 100 : null;
+
+                html += `
+                <div class="return-item">
+                    <div class="return-header">
+                        <span class="return-period">${buySig.date} → ${sellSig.date}</span>
+                        <span class="return-days">${days}天</span>
+                    </div>
+                    <div class="return-details">
+                        <div class="return-stock">
+                            <span class="stock-label">新城控股:</span>
+                            <span class="stock-price">${ctrlBuy.toFixed(2)} → ${ctrlSell.toFixed(2)}</span>
+                            <span class="stock-return ${ctrlReturn >= 0 ? 'up' : 'down'}">${ctrlReturn >= 0 ? '+' : ''}${ctrlReturn.toFixed(2)}%</span>
+                        </div>
+                        <div class="return-stock">
+                            <span class="stock-label">新城发展:</span>
+                            <span class="stock-price">${devBuy.toFixed(2)} → ${devSell.toFixed(2)}</span>
+                            <span class="stock-return ${devReturn >= 0 ? 'up' : 'down'}">${devReturn >= 0 ? '+' : ''}${devReturn.toFixed(2)}%</span>
+                        </div>
+                        <div class="return-excess">
+                            <span class="excess-label">超额收益:</span>
+                            <span class="excess-value ${excessReturn >= 0 ? 'up' : 'down'}">${excessReturn >= 0 ? '+' : ''}${excessReturn.toFixed(2)}%</span>
+                        </div>
+                    </div>
+                    <div class="return-reason">
+                        <div class="reason-row">
+                            <span class="reason-label">📌 买入:</span>
+                            <span>市值比 ${(buySig.ratio * 100).toFixed(2)}% (百分位 ${buyRatioPct ? buyRatioPct.toFixed(1) + '%' : '-'})</span>
+                        </div>
+                        <div class="reason-row">
+                            <span class="reason-label">📌 卖出:</span>
+                            <span>市值比 ${(sellSig.ratio * 100).toFixed(2)}% (百分位 ${sellRatioPct ? sellRatioPct.toFixed(1) + '%' : '-'})</span>
+                        </div>
+                    </div>
+                </div>`;
+            }
+            i += 2;
+        } else {
+            html += `
+            <div class="return-item unpaired ${sig.type === 'buy' ? 'position-long' : 'position-short'}">
+                <div class="unpaired-header">
+                    <span class="unpaired-title">${sig.type === 'buy' ? '买入发展/卖出控股' : '卖出发展/买入控股'}</span>
+                    <span class="unpaired-date">${sig.date}</span>
+                </div>
+            </div>`;
+            i++;
+        }
+    }
+
+    if (completedPairs > 0) {
+        html = `
+        <div class="return-summary">
+            <div class="summary-title">${tierLabel}区间累计收益（${completedPairs}个完整交易对）</div>
+            <div class="summary-row">
+                <span class="summary-label">新城控股:</span>
+                <span class="summary-value ${totalCtrlReturn >= 0 ? 'up' : 'down'}">${totalCtrlReturn >= 0 ? '+' : ''}${totalCtrlReturn.toFixed(2)}%</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">新城发展:</span>
+                <span class="summary-value ${totalDevReturn >= 0 ? 'up' : 'down'}">${totalDevReturn >= 0 ? '+' : ''}${totalDevReturn.toFixed(2)}%</span>
+            </div>
+            <div class="summary-row total">
+                <span class="summary-label">累计超额:</span>
+                <span class="summary-value ${totalExcessReturn >= 0 ? 'up' : 'down'}">${totalExcessReturn >= 0 ? '+' : ''}${totalExcessReturn.toFixed(2)}%</span>
+            </div>
+        </div>` + html;
+    }
+
+    container.innerHTML = html || '<span class="no-data">无完整交易区间</span>';
+}
+
+// ============================================================
+// DOMContentLoaded
+// ============================================================
+
 document.addEventListener('DOMContentLoaded', function() {
     chartsModule.initCharts();
     refreshBtn.addEventListener('click', refreshData);
-    document.getElementById('update-signals-btn').addEventListener('click', updateSignalThresholds);
-    document.getElementById('smart-analysis-btn').addEventListener('click', runSmartAnalysis);
+
+    // 初始化3个栏目管理器
+    window.columnManagers = {};
+    for (let i = 1; i <= 3; i++) {
+        window.columnManagers[i] = new ColumnManager(String(i));
+    }
+
     loadAllData();
 });
+
+// ============================================================
+// Data Loading Functions
+// ============================================================
 
 async function refreshData() {
     refreshBtn.textContent = '刷新中...';
@@ -131,10 +631,13 @@ async function loadAllData() {
         // 计算市值比和百分位
         calculateRatiosAndPercentile();
 
-        // 找出极端区间
-        findExtremePeriods();
-
+        // 加载数据后，更新顶部图表
         updateCharts();
+
+        // 触发各栏自动刷新
+        Object.values(window.columnManagers).forEach(cm => cm.refresh());
+
+        // 更新全局数据表格
         updateTable();
 
     } catch (error) {
@@ -247,578 +750,22 @@ function calculateRatiosAndPercentile() {
     globalData.ratioMap = ratioMap;
 }
 
-/**
- * 根据给定阈值和仓位比例计算买卖信号
- * @param {Object} ratioMap - 日期→市值比映射
- * @param {Array} periodData - 时间范围内的新城控股数据
- * @param {Object} tier - { lowPct, highPct, positionRatio }
- * @param {number} periodYears - 统计周期（年）
- * @returns {Object} { signals, thresholdLow, thresholdHigh, sortedRatios, periodRatios }
- */
-function findSignalsForTier(ratioMap, periodData, tier, periodYears) {
-    const { lowPct, highPct, positionRatio } = tier;
-
-    // 计算统计周期的截止日期
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
-    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
-
-    // 过滤时间范围内的 ratio
-    const filteredRatios = [];
-    periodData.forEach(ctrl => {
-        if (ctrl.date >= cutoffDateStr) {
-            const ratio = ratioMap[ctrl.date];
-            if (ratio !== undefined) filteredRatios.push(ratio);
-        }
-    });
-    if (filteredRatios.length === 0) return null;
-
-    // 计算阈值
-    const sortedRatios = [...filteredRatios].sort((a, b) => a - b);
-    const lowIdx = Math.floor(sortedRatios.length * lowPct / 100);
-    const highIdx = Math.floor(sortedRatios.length * highPct / 100);
-    const thresholdLow = sortedRatios[Math.min(lowIdx, sortedRatios.length - 1)];
-    const thresholdHigh = sortedRatios[Math.min(highIdx, sortedRatios.length - 1)];
-
-    // 信号检测（状态机）
-    const signals = [];
-    let lastSignal = null;
-    let lastSignalDate = null;
-
-    periodData.forEach(ctrl => {
-        if (ctrl.date < cutoffDateStr) return;
-        const ratio = ratioMap[ctrl.date];
-        if (ratio === undefined) return;
-
-        let zone = 'middle';
-        if (ratio < thresholdLow) zone = 'below';
-        else if (ratio > thresholdHigh) zone = 'above';
-
-        if (lastSignal === null) {
-            if (zone === 'below') {
-                signals.push({ date: ctrl.date, type: 'buy', ratio, positionRatio });
-                lastSignal = 'buy';
-                lastSignalDate = ctrl.date;
-            }
-        } else if (lastSignal === 'buy') {
-            if (zone === 'above') {
-                const gap = Math.round((new Date(ctrl.date) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
-                if (gap >= MIN_GAP_DAYS) {
-                    signals.push({ date: ctrl.date, type: 'sell', ratio, positionRatio });
-                    lastSignal = 'sell';
-                    lastSignalDate = ctrl.date;
-                }
-            }
-        } else if (lastSignal === 'sell') {
-            if (zone === 'below') {
-                const gap = Math.round((new Date(ctrl.date) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
-                if (gap >= MIN_GAP_DAYS) {
-                    signals.push({ date: ctrl.date, type: 'buy', ratio, positionRatio });
-                    lastSignal = 'buy';
-                    lastSignalDate = ctrl.date;
-                }
-            }
-        }
-    });
-
-    return { signals, thresholdLow, thresholdHigh, sortedRatios, periodRatios: filteredRatios };
-}
-
-function findExtremePeriods() {
-    const { ratioMap } = globalData;
+function updateCharts() {
     const { controlData, developmentData } = globalData;
     if (controlData.length === 0) return;
 
-    // 双档配置 - 从UI输入读取
-    const tier1LowPct = parseInt(document.getElementById('low-threshold').value) || 10;
-    const tier1HighPct = parseInt(document.getElementById('high-threshold').value) || 90;
-    const tier1PositionRatio = 0.5; // primary tier always 50%
-
-    const tier2LowPct = parseInt(document.getElementById('tier2-low-threshold').value) || 5;
-    const tier2HighPct = parseInt(document.getElementById('tier2-high-threshold').value) || 95;
-    const tier2PositionRatio = (parseInt(document.getElementById('tier2-position-ratio').value) || 100) / 100;
-
-    const tier1 = { lowPct: tier1LowPct, highPct: tier1HighPct, positionRatio: tier1PositionRatio };
-    const tier2 = { lowPct: tier2LowPct, highPct: tier2HighPct, positionRatio: tier2PositionRatio };
-    const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
-
-    // 计算全局百分位（用于走势图）
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
-    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
-
-    const allPeriodRatios = [];
-    controlData.forEach(ctrl => {
-        if (ctrl.date >= cutoffDateStr) {
-            const ratio = ratioMap[ctrl.date];
-            if (ratio !== undefined) allPeriodRatios.push(ratio);
-        }
-    });
-
-    if (allPeriodRatios.length === 0) return;
-
-    const sortedRatios = [...allPeriodRatios].sort((a, b) => a - b);
-
-    const percentileMap = {};
-    controlData.forEach(ctrl => {
-        if (ctrl.date >= cutoffDateStr) {
-            const ratio = ratioMap[ctrl.date];
-            if (ratio !== undefined) {
-                const rank = sortedRatios.filter(r => r <= ratio).length;
-                percentileMap[ctrl.date] = (rank / sortedRatios.length) * 100;
-            }
-        }
-    });
-
-    const percentilesAll = [];
-    const datesAll = [];
-    controlData.forEach(ctrl => {
-        if (percentileMap[ctrl.date] !== undefined) {
-            datesAll.push(ctrl.date);
-            percentilesAll.push(percentileMap[ctrl.date]);
-        }
-    });
-
-    const latestCtrl = controlData[controlData.length - 1];
-    const currentRatio = ratioMap[latestCtrl.date];
-    const currentPercentile = percentileMap[latestCtrl.date];
-
-    globalData.percentileData = {
-        dates: datesAll,
-        percentiles: percentilesAll,
-        currentRatio,
-        currentPercentile
-    };
-
-    // 计算两档信号
-    const tier1Result = findSignalsForTier(ratioMap, controlData, tier1, periodYears);
-    const tier2Result = findSignalsForTier(ratioMap, controlData, tier2, periodYears);
-
-    // 保存供图表使用
-    globalData.tierConfig = { tier1: tier1Result, tier2: tier2Result };
-
-    // 渲染信号（按钮形式）
-    renderSignalButtons([tier1Result, tier2Result]);
-
-    // 计算收益
-    if (tier1Result) {
-        renderSignalReturns(tier1Result, developmentData, controlData, ratioMap, {
-            tier: 1,
-            positionRatio: tier1.positionRatio,
-            lowPct: tier1.lowPct,
-            highPct: tier1.highPct,
-            thresholdLow: tier1Result.thresholdLow,
-            thresholdHigh: tier1Result.thresholdHigh,
-            sortedRatios: tier1Result.sortedRatios
-        });
-    }
-    if (tier2Result) {
-        renderSignalReturns(tier2Result, developmentData, controlData, ratioMap, {
-            tier: 2,
-            positionRatio: tier2.positionRatio,
-            lowPct: tier2.lowPct,
-            highPct: tier2.highPct,
-            thresholdLow: tier2Result.thresholdLow,
-            thresholdHigh: tier2Result.thresholdHigh,
-            sortedRatios: tier2Result.sortedRatios
-        });
-    }
-
-    // 更新图表
-    if (chartsModule.updateTieredChart) {
-        chartsModule.updateTieredChart(tier1Result, tier2Result);
-    }
-}
-
-function renderSignalButtons(tierResults) {
-    const container = document.getElementById('signal-dates');
-    if (!container) return;
-
-    const tierLabel = { 1: '一档(常规)', 2: '二档(极值)' };
-    const tierClass = { 1: 'tier1', 2: 'tier2' };
-
-    let html = '';
-    tierResults.forEach((result, idx) => {
-        if (!result) return;
-        const tierNum = idx + 1;
-        result.signals.forEach(sig => {
-            const label = sig.type === 'buy' ? '买入' : '卖出';
-            html += `<button class="period-tag ${tierClass[tierNum]}" onclick="chartsModule.scrollChartToDate('${sig.date}')">[${tierLabel[tierNum]}] ${label}: ${sig.date}</button>`;
-        });
-    });
-    container.innerHTML = html || '<span class="no-data">无信号</span>';
-}
-
-function renderSignalReturns(tierResult, developmentData, controlData, ratioMap, opts) {
-    // tierResult: { signals, thresholdLow, thresholdHigh, sortedRatios, periodRatios }
-    const signals = tierResult ? tierResult.signals : [];
-    const container = document.getElementById('signal-returns-content');
-    if (!container) return;
-
-    // 建立价格查找表
-    const ctrlPriceByDate = {};
-    controlData.forEach(d => { ctrlPriceByDate[d.date] = d.close; });
-    const devPriceByDate = {};
-    developmentData.forEach(d => { devPriceByDate[d.date] = d.close; });
-
-    const posRatio = opts.positionRatio || 1.0;
-    const tierLabel = opts.tier ? `【${opts.tier === 1 ? '一档(常规)' : '二档(极值)'}】` : '';
-
-    let html = '';
-    let i = 0;
-
-    let totalCtrlReturn = 0;
-    let totalDevReturn = 0;
-    let totalExcessReturn = 0;
-    let completedPairs = 0;
-
-    // 计算当前最新 ratio 及其百分位（用于未平仓距离）
-    let currentRatio = null;
-    let currentRatioPercentile = null;
-    if (controlData.length > 0) {
-        const latestCtrl = controlData[controlData.length - 1];
-        currentRatio = ratioMap[latestCtrl.date];
-        if (currentRatio && tierResult && tierResult.sortedRatios) {
-            currentRatioPercentile = tierResult.sortedRatios.filter(r => r <= currentRatio).length / tierResult.sortedRatios.length * 100;
-        }
-    }
-
-    // 未平仓时，在最顶部显示距离下一次交易的信息
-    let topBanner = '';
-    const lastSig = signals.length > 0 ? signals[signals.length - 1] : null;
-    if (lastSig && (lastSig.type === 'buy' || lastSig.type === 'sell') && opts) {
-        if (lastSig.type === 'buy') {
-            const targetPct = opts.highPct || 90;
-            if (currentRatioPercentile !== null) {
-                const diff = targetPct - currentRatioPercentile;
-                if (diff > 0) {
-                    topBanner = `<div class="distance-banner pending"><span class="banner-label">📍 当前持仓中（买入发展）</span><span class="banner-distance">距触发卖出还差 <strong>${diff.toFixed(1)}%</strong> 百分位（当前 ${currentRatioPercentile.toFixed(1)}%，需升至 ${targetPct}%）</span></div>`;
-                } else {
-                    topBanner = `<div class="distance-banner ready"><span class="banner-label">📍 当前持仓中（买入发展）</span><span class="banner-distance">已高于卖出阈值 ${targetPct}%！可考虑卖出</span></div>`;
-                }
-            }
-        } else {
-            const targetPct = opts.lowPct || 10;
-            if (currentRatioPercentile !== null) {
-                const diff = currentRatioPercentile - targetPct;
-                if (diff > 0) {
-                    topBanner = `<div class="distance-banner pending"><span class="banner-label">📍 当前空仓中（卖出发展）</span><span class="banner-distance">距触发买入还差 <strong>${diff.toFixed(1)}%</strong> 百分位（当前 ${currentRatioPercentile.toFixed(1)}%，需降至 ${targetPct}%）</span></div>`;
-                } else {
-                    topBanner = `<div class="distance-banner ready"><span class="banner-label">📍 当前空仓中（卖出发展）</span><span class="banner-distance">已低于买入阈值 ${targetPct}%！可考虑买入</span></div>`;
-                }
-            }
-        }
-    }
-
-    html = topBanner;
-
-    while (i < signals.length) {
-        const sig = signals[i];
-        if (sig.type === 'buy' && i + 1 < signals.length) {
-            // 配对买入和卖出
-            const buySig = sig;
-            const sellSig = signals[i + 1];
-
-            const ctrlBuy = ctrlPriceByDate[buySig.date];
-            const ctrlSell = ctrlPriceByDate[sellSig.date];
-            const devBuy = devPriceByDate[buySig.date];
-            const devSell = devPriceByDate[sellSig.date];
-
-            if (ctrlBuy && ctrlSell && devBuy && devSell) {
-                const ctrlReturn = (ctrlSell - ctrlBuy) / ctrlBuy * 100;
-                const devReturn = (devSell - devBuy) / devBuy * 100;
-                const excessReturn = devReturn - ctrlReturn;
-
-                // 仓位调整后的收益
-                const adjustedCtrlReturn = ctrlReturn * posRatio;
-                const adjustedDevReturn = devReturn * posRatio;
-                const adjustedExcessReturn = excessReturn * posRatio;
-
-                // 累计复利计算
-                totalCtrlReturn = (1 + totalCtrlReturn / 100) * (1 + adjustedCtrlReturn / 100) * 100 - 100;
-                totalDevReturn = (1 + totalDevReturn / 100) * (1 + adjustedDevReturn / 100) * 100 - 100;
-                totalExcessReturn = (1 + totalExcessReturn / 100) * (1 + adjustedExcessReturn / 100) * 100 - 100;
-                completedPairs++;
-
-                const days = Math.round((new Date(sellSig.date) - new Date(buySig.date)) / (1000 * 60 * 60 * 24));
-
-                // 计算买入/卖出时的市值比百分位
-                const buyRatioPct = tierResult && tierResult.sortedRatios
-                    ? tierResult.sortedRatios.filter(r => r <= buySig.ratio).length / tierResult.sortedRatios.length * 100
-                    : null;
-                const sellRatioPct = tierResult && tierResult.sortedRatios
-                    ? tierResult.sortedRatios.filter(r => r <= sellSig.ratio).length / tierResult.sortedRatios.length * 100
-                    : null;
-
-                html += `
-                <div class="return-item">
-                    <div class="return-header">
-                        <span class="return-period">${buySig.date} → ${sellSig.date}</span>
-                        <span class="return-days">${days}天</span>
-                    </div>
-                    <div class="return-details">
-                        <div class="return-stock">
-                            <span class="stock-label">新城控股:</span>
-                            <span class="stock-price">${ctrlBuy.toFixed(2)} → ${ctrlSell.toFixed(2)}</span>
-                            <span class="stock-return ${ctrlReturn >= 0 ? 'up' : 'down'}">${ctrlReturn >= 0 ? '+' : ''}${ctrlReturn.toFixed(2)}%</span>
-                        </div>
-                        <div class="return-stock">
-                            <span class="stock-label">新城发展:</span>
-                            <span class="stock-price">${devBuy.toFixed(2)} → ${devSell.toFixed(2)}</span>
-                            <span class="stock-return ${devReturn >= 0 ? 'up' : 'down'}">${devReturn >= 0 ? '+' : ''}${devReturn.toFixed(2)}%</span>
-                        </div>
-                        <div class="return-excess">
-                            <span class="excess-label">超额收益:</span>
-                            <span class="excess-value ${excessReturn >= 0 ? 'up' : 'down'}">${excessReturn >= 0 ? '+' : ''}${excessReturn.toFixed(2)}%</span>
-                        </div>
-                    </div>
-                    <div class="return-reason">
-                        <div class="reason-row">
-                            <span class="reason-label">📌 买入:</span>
-                            <span>市值比 ${(buySig.ratio * 100).toFixed(2)}% (百分位 ${buyRatioPct ? buyRatioPct.toFixed(1) + '%' : '-'})，低于 ${buySig.ratio < (tierResult?.thresholdLow || 0) ? '买入阈值' : '当前最低区间'}</span>
-                        </div>
-                        <div class="reason-row">
-                            <span class="reason-label">📌 卖出:</span>
-                            <span>市值比 ${(sellSig.ratio * 100).toFixed(2)}% (百分位 ${sellRatioPct ? sellRatioPct.toFixed(1) + '%' : '-'})，高于 ${sellSig.ratio > (tierResult?.thresholdHigh || Infinity) ? '卖出阈值' : '当前最高区间'}</span>
-                        </div>
-                    </div>
-                </div>`;
-            }
-            i += 2;
-        } else {
-            // 无法配对的信号（最后一个买入但没有对应的卖出）
-            html += `
-            <div class="return-item unpaired ${sig.type === 'buy' ? 'position-long' : 'position-short'}">
-                <div class="unpaired-header">
-                    <span class="unpaired-title">${sig.type === 'buy' ? '买入发展/卖出控股' : '卖出发展/买入控股'}</span>
-                    <span class="unpaired-date">${sig.date}</span>
-                </div>
-            </div>`;
-            i++;
-        }
-    }
-
-    // 汇总行
-    if (completedPairs > 0) {
-        html = `
-        <div class="return-summary">
-            <div class="summary-title">${tierLabel}区间累计收益（${completedPairs}个完整交易对）</div>
-            <div class="summary-row">
-                <span class="summary-label">新城控股:</span>
-                <span class="summary-value ${totalCtrlReturn >= 0 ? 'up' : 'down'}">${totalCtrlReturn >= 0 ? '+' : ''}${totalCtrlReturn.toFixed(2)}%</span>
-            </div>
-            <div class="summary-row">
-                <span class="summary-label">新城发展:</span>
-                <span class="summary-value ${totalDevReturn >= 0 ? 'up' : 'down'}">${totalDevReturn >= 0 ? '+' : ''}${totalDevReturn.toFixed(2)}%</span>
-            </div>
-            <div class="summary-row total">
-                <span class="summary-label">累计超额:</span>
-                <span class="summary-value ${totalExcessReturn >= 0 ? 'up' : 'down'}">${totalExcessReturn >= 0 ? '+' : ''}${totalExcessReturn.toFixed(2)}%</span>
-            </div>
-        </div>` + html;
-    }
-
-    container.innerHTML = html || '<span class="no-data">无完整交易区间</span>';
-}
-
-function updateSignalThresholds() {
-    findExtremePeriods();
-    updateCharts();
-    updateTable();
-}
-
-async function runSmartAnalysis() {
-    const btn = document.getElementById('smart-analysis-btn');
-    const resultDiv = document.getElementById('smart-analysis-result');
-    btn.disabled = true;
-    btn.textContent = '🔍 分析中...';
-    resultDiv.innerHTML = '<span class="no-data">策略扫描中，请稍候...</span>';
-
-    await new Promise(r => setTimeout(r, 50)); // yield to render
-
-    const { controlData, developmentData, ratioMap } = globalData;
-    if (controlData.length === 0) {
-        resultDiv.innerHTML = '<span class="no-data">数据加载中，请稍候</span>';
-        btn.disabled = false;
-        btn.textContent = '🤖 智能策略分析';
-        return;
-    }
-
-    const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
-    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
-
-    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
-    const periodRatios = [];
-    periodData.forEach(ctrl => {
-        const ratio = ratioMap[ctrl.date];
-        if (ratio !== undefined) periodRatios.push(ratio);
-    });
-
-    if (periodRatios.length === 0) {
-        resultDiv.innerHTML = '<span class="no-data">数据不足</span>';
-        btn.disabled = false;
-        btn.textContent = '🤖 智能策略分析';
-        return;
-    }
-
-    const sortedRatios = [...periodRatios].sort((a, b) => a - b);
-
-    // 建立价格查找表
-    const ctrlPriceByDate = {};
-    controlData.forEach(d => { ctrlPriceByDate[d.date] = d.close; });
-    const devPriceByDate = {};
-    developmentData.forEach(d => { devPriceByDate[d.date] = d.close; });
-
-    let bestLow = 10;
-    let bestHigh = 90;
-    let bestExcess = -Infinity;
-    let bestPairs = 0;
-
-    // Grid search: low from 5 to 45, high from 50 to 95
-    for (let lowPct = 5; lowPct <= 45; lowPct += 2) {
-        for (let highPct = 50; highPct <= 95; highPct += 5) {
-            if (highPct <= lowPct) continue;
-
-            const thresholdLow = sortedRatios[Math.min(Math.floor(sortedRatios.length * lowPct / 100), sortedRatios.length - 1)];
-            const thresholdHigh = sortedRatios[Math.min(Math.floor(sortedRatios.length * highPct / 100), sortedRatios.length - 1)];
-
-            const signals = [];
-            let lastSignal = null;
-            let lastSignalDate = null;
-
-            periodData.forEach((ctrl) => {
-                const ratio = ratioMap[ctrl.date];
-                if (ratio === undefined) return;
-
-                let zone = 'middle';
-                if (ratio < thresholdLow) zone = 'below';
-                else if (ratio > thresholdHigh) zone = 'above';
-
-                const ctrlDate = ctrl.date;
-
-                if (lastSignal === null) {
-                    if (zone === 'below') {
-                        signals.push({ date: ctrlDate, type: 'buy' });
-                        lastSignal = 'buy';
-                        lastSignalDate = ctrlDate;
-                    }
-                } else if (lastSignal === 'buy') {
-                    if (zone === 'above') {
-                        const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
-                        if (gap >= MIN_GAP_DAYS) {
-                            signals.push({ date: ctrlDate, type: 'sell' });
-                            lastSignal = 'sell';
-                            lastSignalDate = ctrlDate;
-                        }
-                    }
-                } else if (lastSignal === 'sell') {
-                    if (zone === 'below') {
-                        const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
-                        if (gap >= MIN_GAP_DAYS) {
-                            signals.push({ date: ctrlDate, type: 'buy' });
-                            lastSignal = 'buy';
-                            lastSignalDate = ctrlDate;
-                        }
-                    }
-                }
-            });
-
-            // 计算累计超额收益
-            let totalExcess = 0;
-            let completedPairs = 0;
-            let i = 0;
-            while (i < signals.length) {
-                const sig = signals[i];
-                if (sig.type === 'buy' && i + 1 < signals.length) {
-                    const buySig = sig;
-                    const sellSig = signals[i + 1];
-                    const ctrlBuy = ctrlPriceByDate[buySig.date];
-                    const ctrlSell = ctrlPriceByDate[sellSig.date];
-                    const devBuy = devPriceByDate[buySig.date];
-                    const devSell = devPriceByDate[sellSig.date];
-                    if (ctrlBuy && ctrlSell && devBuy && devSell) {
-                        const ctrlReturn = (ctrlSell - ctrlBuy) / ctrlBuy * 100;
-                        const devReturn = (devSell - devBuy) / devBuy * 100;
-                        const excessReturn = devReturn - ctrlReturn;
-                        totalExcess = (1 + totalExcess / 100) * (1 + excessReturn / 100) * 100 - 100;
-                        completedPairs++;
-                    }
-                    i += 2;
-                } else {
-                    break;
-                }
-            }
-
-            // 优先选择有至少2个完整交易对的策略，再比较超额收益
-            if (completedPairs >= 2 && totalExcess > bestExcess) {
-                bestExcess = totalExcess;
-                bestLow = lowPct;
-                bestHigh = highPct;
-                bestPairs = completedPairs;
-            }
-        }
-    }
-
-    if (bestPairs === 0) {
-        resultDiv.innerHTML = '<span class="no-data">未找到有效的策略（至少需要2个完整交易对）</span>';
-    } else {
-        resultDiv.innerHTML = `
-            <div class="smart-result-item">
-                <span class="smart-label">最优买入阈值:</span>
-                <span class="smart-value">低于 <strong>${bestLow}%</strong></span>
-            </div>
-            <div class="smart-result-item">
-                <span class="smart-label">最优卖出阈值:</span>
-                <span class="smart-value">高于 <strong>${bestHigh}%</strong></span>
-            </div>
-            <div class="smart-result-item">
-                <span class="smart-label">预计超额收益:</span>
-                <span class="smart-value excess ${bestExcess >= 0 ? 'up' : 'down'}">${bestExcess >= 0 ? '+' : ''}${bestExcess.toFixed(2)}%</span>
-            </div>
-            <div class="smart-result-item">
-                <span class="smart-label">完整交易对:</span>
-                <span class="smart-value">${bestPairs} 个</span>
-            </div>
-            <button id="apply-smart-btn" class="apply-btn">应用此策略</button>
-        `;
-        document.getElementById('apply-smart-btn').addEventListener('click', () => {
-            document.getElementById('low-threshold').value = bestLow;
-            document.getElementById('high-threshold').value = bestHigh;
-            updateSignalThresholds();
-            resultDiv.innerHTML = '';
-        });
-    }
-
-    btn.disabled = false;
-    btn.textContent = '🤖 智能策略分析';
-}
-
-function updateCharts() {
-    const { controlData, developmentData, percentileData, thresholds } = globalData;
-
-    // 获取当前统计周期
-    const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
-    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
-    const endDateStr = controlData.length > 0 ? controlData[controlData.length - 1].date : '';
-
-    // 按日期建立港股数据的 Map，避免 index 不对齐问题
     const devPriceByDate = {};
     developmentData.forEach(d => {
         devPriceByDate[d.date] = d.close;
     });
 
-    // 按 A 股日期顺序，匹配对应日期的港股价格，并过滤到统计周期内
     const dates = [];
     const controlPrices = [];
     const developmentPrices = [];
 
     controlData.forEach(ctrl => {
         const devPrice = devPriceByDate[ctrl.date];
-        if (devPrice !== undefined && ctrl.date >= cutoffDateStr) {
+        if (devPrice !== undefined) {
             dates.push(ctrl.date);
             controlPrices.push(ctrl.close);
             developmentPrices.push(devPrice);
@@ -826,11 +773,6 @@ function updateCharts() {
     });
 
     chartsModule.setAllData(dates, controlPrices, developmentPrices);
-
-    // 更新百分位图表（percentileData.dates 已经是周期内的数据）
-    if (percentileData.dates && percentileData.dates.length > 0) {
-        chartsModule.updatePercentileChart(percentileData, thresholds);
-    }
 }
 
 function updateTable() {
