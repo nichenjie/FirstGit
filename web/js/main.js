@@ -186,34 +186,15 @@ class ColumnManager {
 // 新增函数
 // ============================================================
 
-function findSignalsForColumn(columnId, periodYears, lowPct, highPct) {
-    const { ratioMap } = globalData;
-    const { controlData } = globalData;
-    if (controlData.length === 0) return null;
-
-    // 计算截止日期
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
-    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
-
-    // 过滤周期内的数据
-    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
-    const periodRatios = [];
-    periodData.forEach(ctrl => {
-        const ratio = ratioMap[ctrl.date];
-        if (ratio !== undefined) periodRatios.push(ratio);
-    });
-    if (periodRatios.length === 0) return null;
-
-    const sortedRatios = [...periodRatios].sort((a, b) => a - b);
-
-    // 计算阈值
-    const lowIdx = Math.floor(sortedRatios.length * lowPct / 100);
-    const highIdx = Math.floor(sortedRatios.length * highPct / 100);
-    const thresholdLow = sortedRatios[Math.min(lowIdx, sortedRatios.length - 1)];
-    const thresholdHigh = sortedRatios[Math.min(highIdx, sortedRatios.length - 1)];
-
-    // 信号检测（状态机）
+/**
+ * Detect buy/sell signals from period data based on low/high thresholds.
+ * @param {Array} periodData - Array of control data objects with date property
+ * @param {Object} ratioMap - Map of date -> ratio values
+ * @param {number} thresholdLow - Below this ratio is a buy signal
+ * @param {number} thresholdHigh - Above this ratio is a sell signal
+ * @returns {Array} Array of signal objects {date, type, ratio}
+ */
+function detectSignals(periodData, ratioMap, thresholdLow, thresholdHigh) {
     const signals = [];
     let lastSignal = null;
     let lastSignalDate = null;
@@ -252,6 +233,39 @@ function findSignalsForColumn(columnId, periodYears, lowPct, highPct) {
             }
         }
     });
+
+    return signals;
+}
+
+function findSignalsForColumn(columnId, periodYears, lowPct, highPct) {
+    const { ratioMap } = globalData;
+    const { controlData } = globalData;
+    if (controlData.length === 0) return null;
+
+    // 计算截止日期
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+
+    // 过滤周期内的数据
+    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
+    const periodRatios = [];
+    periodData.forEach(ctrl => {
+        const ratio = ratioMap[ctrl.date];
+        if (ratio !== undefined) periodRatios.push(ratio);
+    });
+    if (periodRatios.length === 0) return null;
+
+    const sortedRatios = [...periodRatios].sort((a, b) => a - b);
+
+    // 计算阈值
+    const lowIdx = Math.floor(sortedRatios.length * lowPct / 100);
+    const highIdx = Math.floor(sortedRatios.length * highPct / 100);
+    const thresholdLow = sortedRatios[Math.min(lowIdx, sortedRatios.length - 1)];
+    const thresholdHigh = sortedRatios[Math.min(highIdx, sortedRatios.length - 1)];
+
+    // 使用共享函数检测信号
+    const signals = detectSignals(periodData, ratioMap, thresholdLow, thresholdHigh);
 
     // 计算百分位走势数据
     const percentileMap = {};
@@ -329,46 +343,8 @@ function analyzeForColumn(columnId, periodYears) {
             const thresholdLow = sortedRatios[Math.min(Math.floor(sortedRatios.length * lowPct / 100), sortedRatios.length - 1)];
             const thresholdHigh = sortedRatios[Math.min(Math.floor(sortedRatios.length * highPct / 100), sortedRatios.length - 1)];
 
-            const signals = [];
-            let lastSignal = null;
-            let lastSignalDate = null;
-
-            periodData.forEach((ctrl) => {
-                const ratio = ratioMap[ctrl.date];
-                if (ratio === undefined) return;
-
-                let zone = 'middle';
-                if (ratio < thresholdLow) zone = 'below';
-                else if (ratio > thresholdHigh) zone = 'above';
-
-                const ctrlDate = ctrl.date;
-
-                if (lastSignal === null) {
-                    if (zone === 'below') {
-                        signals.push({ date: ctrlDate, type: 'buy' });
-                        lastSignal = 'buy';
-                        lastSignalDate = ctrlDate;
-                    }
-                } else if (lastSignal === 'buy') {
-                    if (zone === 'above') {
-                        const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
-                        if (gap >= MIN_GAP_DAYS) {
-                            signals.push({ date: ctrlDate, type: 'sell' });
-                            lastSignal = 'sell';
-                            lastSignalDate = ctrlDate;
-                        }
-                    }
-                } else if (lastSignal === 'sell') {
-                    if (zone === 'below') {
-                        const gap = Math.round((new Date(ctrlDate) - new Date(lastSignalDate)) / (1000 * 60 * 60 * 24));
-                        if (gap >= MIN_GAP_DAYS) {
-                            signals.push({ date: ctrlDate, type: 'buy' });
-                            lastSignal = 'buy';
-                            lastSignalDate = ctrlDate;
-                        }
-                    }
-                }
-            });
+            // 使用共享函数检测信号
+            const signals = detectSignals(periodData, ratioMap, thresholdLow, thresholdHigh);
 
             let totalExcess = 0;
             let completedPairs = 0;
