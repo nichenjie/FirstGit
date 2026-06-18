@@ -70,7 +70,6 @@ let globalData = {
 };
 
 const refreshBtn = document.getElementById('refresh-btn');
-const tableBody = document.getElementById('table-body');
 
 // ============================================================
 // ColumnManager 类
@@ -752,17 +751,10 @@ function updateCharts() {
 }
 
 function updateTable() {
-    const { controlData, developmentData, allRatios, ratioMap } = globalData;
+    const tableBody = document.getElementById('table-body');
+    if (!tableBody) return;
 
-    if (allRatios.length === 0) return;
-
-    // 获取选择的统计周期
-    const periodYears = parseInt(document.getElementById('percentile-period').value) || 3;
-
-    // 根据选择的周期过滤数据计算百分位
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
-    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+    const { controlData, developmentData, ratioMap } = globalData;
 
     // 按日期建立港股数据的 Map，避免 index 不对齐问题
     const devPriceByDate = {};
@@ -770,22 +762,9 @@ function updateTable() {
         devPriceByDate[d.date] = d;
     });
 
-    // 根据周期过滤 A 股数据（从旧到新排列）
-    const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
-
-    // 计算周期内所有比率用于百分位计算
-    const periodRatios = [];
-    periodData.forEach(ctrl => {
-        const ratio = ratioMap[ctrl.date];
-        if (ratio !== undefined) {
-            periodRatios.push(ratio);
-        }
-    });
-
-    const sortedPeriod = [...periodRatios].sort((a, b) => a - b);
-
-    // 反转数组，按时间倒序显示（最新在前）
-    const reversedData = [...periodData].reverse();
+    // 数据表格显示全部历史数据（不受栏目周期筛选影响）
+    // 按时间倒序显示（最新在前）
+    const reversedData = [...controlData].reverse();
 
     tableBody.innerHTML = reversedData.map((ctrl) => {
         const dev = devPriceByDate[ctrl.date];
@@ -799,11 +778,6 @@ function updateTable() {
         const controlMarketCap = ctrl.close * ctrlShares;
         const ratio = devMarketCapCNY / controlMarketCap;
 
-        // 计算百分位（基于选择的周期数据）
-        const percentile = periodRatios.length > 0
-            ? periodRatios.filter(r => r <= ratio).length / periodRatios.length * 100
-            : 50;
-
         return `
             <tr>
                 <td>${ctrl.date}</td>
@@ -814,7 +788,7 @@ function updateTable() {
                 <td>${rate.toFixed(4)}</td>
                 <td class="color-development">${devMarketCapCNY.toFixed(2)}</td>
                 <td>${(ratio * 100).toFixed(2)}%</td>
-                <td>${percentile.toFixed(2)}%</td>
+                <td>-</td>
             </tr>
         `;
     }).join('');
