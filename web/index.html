@@ -18,17 +18,108 @@
 
         <main class="content">
             <div class="main-layout">
+                <!-- 左侧：价格图 + 三栏策略区 + 数据表格 -->
                 <div class="left-column">
+                    <!-- 收盘价走势对比（不变）-->
                     <div class="chart-container" id="price-chart-container">
                         <h3>收盘价走势对比</h3>
                         <div id="price-chart" class="chart"></div>
                     </div>
 
-                    <div class="chart-container" id="percentile-chart-container">
-                        <h3>市值比百分位走势</h3>
-                        <div id="percentile-chart" class="chart"></div>
+                    <!-- 三栏策略区 -->
+                    <div class="strategy-columns" id="strategy-columns">
+                        <!-- 策略栏 1 -->
+                        <div class="strategy-column" id="column-1" data-column="1">
+                            <div class="column-header">
+                                <h4>策略栏 1</h4>
+                            </div>
+                            <div class="column-controls">
+                                <label>周期:
+                                    <select class="period-select" data-column="1">
+                                        <option value="0.25">3个月</option>
+                                        <option value="0.5">6个月</option>
+                                        <option value="1">1年</option>
+                                        <option value="2">2年</option>
+                                        <option value="3" selected>3年</option>
+                                        <option value="5">5年</option>
+                                    </select>
+                                </label>
+                                <label>低于 <input type="number" class="low-threshold" data-column="1" value="10" min="1" max="50" step="1">%</label>
+                                <label>高于 <input type="number" class="high-threshold" data-column="1" value="90" min="50" max="99" step="1">%</label>
+                            </div>
+                            <div class="chart-container column-chart-container">
+                                <div class="chart percentile-chart" id="percentile-chart-1"></div>
+                            </div>
+                            <button class="smart-analysis-btn" data-column="1">🤖 智能策略分析</button>
+                            <div class="smart-result" data-column="1"></div>
+                            <div class="signal-dates" data-column="1"></div>
+                            <div class="signal-returns" data-column="1">
+                                <div class="signal-returns-content">-</div>
+                            </div>
+                        </div>
+
+                        <!-- 策略栏 2 (同结构，不同默认值) -->
+                        <div class="strategy-column" id="column-2" data-column="2">
+                            <div class="column-header">
+                                <h4>策略栏 2</h4>
+                            </div>
+                            <div class="column-controls">
+                                <label>周期:
+                                    <select class="period-select" data-column="2">
+                                        <option value="0.25">3个月</option>
+                                        <option value="0.5">6个月</option>
+                                        <option value="1">1年</option>
+                                        <option value="2" selected>2年</option>
+                                        <option value="3">3年</option>
+                                        <option value="5">5年</option>
+                                    </select>
+                                </label>
+                                <label>低于 <input type="number" class="low-threshold" data-column="2" value="10" min="1" max="50" step="1">%</label>
+                                <label>高于 <input type="number" class="high-threshold" data-column="2" value="90" min="50" max="99" step="1">%</label>
+                            </div>
+                            <div class="chart-container column-chart-container">
+                                <div class="chart percentile-chart" id="percentile-chart-2"></div>
+                            </div>
+                            <button class="smart-analysis-btn" data-column="2">🤖 智能策略分析</button>
+                            <div class="smart-result" data-column="2"></div>
+                            <div class="signal-dates" data-column="2"></div>
+                            <div class="signal-returns" data-column="2">
+                                <div class="signal-returns-content">-</div>
+                            </div>
+                        </div>
+
+                        <!-- 策略栏 3 (同结构，不同默认值) -->
+                        <div class="strategy-column" id="column-3" data-column="3">
+                            <div class="column-header">
+                                <h4>策略栏 3</h4>
+                            </div>
+                            <div class="column-controls">
+                                <label>周期:
+                                    <select class="period-select" data-column="3">
+                                        <option value="0.25" selected>3个月</option>
+                                        <option value="0.5">6个月</option>
+                                        <option value="1">1年</option>
+                                        <option value="2">2年</option>
+                                        <option value="3">3年</option>
+                                        <option value="5">5年</option>
+                                    </select>
+                                </label>
+                                <label>低于 <input type="number" class="low-threshold" data-column="3" value="10" min="1" max="50" step="1">%</label>
+                                <label>高于 <input type="number" class="high-threshold" data-column="3" value="90" min="50" max="99" step="1">%</label>
+                            </div>
+                            <div class="chart-container column-chart-container">
+                                <div class="chart percentile-chart" id="percentile-chart-3"></div>
+                            </div>
+                            <button class="smart-analysis-btn" data-column="3">🤖 智能策略分析</button>
+                            <div class="smart-result" data-column="3"></div>
+                            <div class="signal-dates" data-column="3"></div>
+                            <div class="signal-returns" data-column="3">
+                                <div class="signal-returns-content">-</div>
+                            </div>
+                        </div>
                     </div>
 
+                    <!-- 数据详情表格（移至三栏下方）-->
                     <div class="data-table-container">
                         <h3>数据详情（按统计周期显示）</h3>
                         <table id="data-table" class="data-table">
@@ -48,42 +139,6 @@
                             <tbody id="table-body">
                             </tbody>
                         </table>
-                    </div>
-                </div>
-
-                <div class="signal-panel" id="signal-panel">
-                    <h3>📊 交易信号 (<span id="low-threshold-val">10</span>% 买入发展 ~ <span id="high-threshold-val">90</span>% 卖出发展)</h3>
-                    <div class="signal-controls">
-                        <label>统计周期:
-                            <select id="percentile-period">
-                                <option value="1">近1年</option>
-                                <option value="2">近2年</option>
-                                <option value="3" selected>近3年</option>
-                                <option value="5">近5年</option>
-                            </select>
-                        </label>
-                        <label>低于 <input type="number" id="low-threshold" value="10" min="1" max="50" step="1">%</label>
-                        <label>高于 <input type="number" id="high-threshold" value="90" min="50" max="99" step="1">%</label>
-                        <button id="update-signals-btn">更新区间</button>
-                        <button id="smart-analysis-btn">🤖 智能策略分析</button>
-                    </div>
-                    <details class="tier2-config">
-                        <summary>二档设置（极值）</summary>
-                        <div class="config-row">
-                            <label>二档低阈值: <input type="number" id="tier2-low-threshold" value="5" min="1" max="45">%</label>
-                            <label>二档高阈值: <input type="number" id="tier2-high-threshold" value="95" min="50" max="99">%</label>
-                            <label>二档仓位: <input type="number" id="tier2-position-ratio" value="100" min="10" max="100">%</label>
-                        </div>
-                    </details>
-                    <div id="smart-analysis-result" class="smart-result"></div>
-                    <div class="signal-content">
-                        <div class="signal-item combined">
-                            <span class="signal-dates" id="signal-dates">-</span>
-                        </div>
-                    </div>
-                    <div class="signal-returns" id="signal-returns">
-                        <h4>交易区间收益分析</h4>
-                        <div id="signal-returns-content">-</div>
                     </div>
                 </div>
             </div>
