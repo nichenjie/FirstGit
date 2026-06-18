@@ -111,9 +111,10 @@ class ColumnManager {
     render(result) {
         if (!result) return;
 
+        const { lowPct, highPct } = this.getParams();
         chartsModule.updateColumnChart(this.columnId, result.percentileData, {
-            lowPct: result.thresholdLow,
-            highPct: result.thresholdHigh
+            lowPct: lowPct,
+            highPct: highPct
         });
 
         this.renderSignalDates(result.signals);
