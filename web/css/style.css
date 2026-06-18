@@ -598,7 +598,7 @@ button:hover {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    max-height: 300px;
+    max-height: 700px;
 }
 
 .data-table-container h3 {
@@ -660,6 +660,18 @@ button:hover {
 .strategy-columns {
     display: flex;
     gap: 12px;
+}
+
+.all-analysis-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 8px;
+}
+
+.all-analysis-btn {
+    padding: 10px 40px;
+    font-size: 14px;
+    background: linear-gradient(135deg, #00d9ff, #0099cc);
 }
 
 .strategy-column {
@@ -749,7 +761,7 @@ button:hover {
     padding: 8px;
     flex: 1;
     overflow-y: auto;
-    max-height: 200px;
+    max-height: 500px;
 }
 
 .signal-returns-content {

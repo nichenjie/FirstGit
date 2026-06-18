@@ -92,7 +92,6 @@ class ColumnManager {
         this.periodSelect.addEventListener('change', () => this.refresh());
         this.lowInput.addEventListener('input', () => this.refresh());
         this.highInput.addEventListener('input', () => this.refresh());
-        this.smartBtn.addEventListener('click', () => this.runSmartAnalysis());
     }
 
     getParams() {
@@ -136,9 +135,6 @@ class ColumnManager {
     }
 
     async runSmartAnalysis() {
-        const btn = this.smartBtn;
-        btn.disabled = true;
-        btn.textContent = '🔍 分析中...';
         this.smartResult.innerHTML = '<span class="no-data">策略扫描中，请稍候...</span>';
 
         await new Promise(r => setTimeout(r, 50));
@@ -149,6 +145,11 @@ class ColumnManager {
         if (!analysis.found) {
             this.smartResult.innerHTML = '<span class="no-data">未找到有效的策略（至少需要2个完整交易对）</span>';
         } else {
+            // 自动应用最优策略
+            this.lowInput.value = analysis.bestLow;
+            this.highInput.value = analysis.bestHigh;
+            this.refresh();
+
             this.smartResult.innerHTML = `
                 <div class="smart-result-item">
                     <span class="smart-label">最优买入阈值:</span>
@@ -166,20 +167,28 @@ class ColumnManager {
                     <span class="smart-label">完整交易对:</span>
                     <span class="smart-value">${analysis.bestPairs} 个</span>
                 </div>
-                <button class="apply-btn" data-column="${this.columnId}" data-low="${analysis.bestLow}" data-high="${analysis.bestHigh}">应用此策略</button>
             `;
-            this.smartResult.querySelector('.apply-btn').addEventListener('click', (e) => {
-                const col = e.target.dataset.column;
-                document.querySelector(`.low-threshold[data-column="${col}"]`).value = e.target.dataset.low;
-                document.querySelector(`.high-threshold[data-column="${col}"]`).value = e.target.dataset.high;
-                this.refresh();
-                this.smartResult.innerHTML = '';
-            });
         }
-
-        btn.disabled = false;
-        btn.textContent = '🤖 智能策略分析';
     }
+}
+
+async function runAllSmartAnalysis() {
+    const btn = document.getElementById('all-smart-analysis-btn');
+    if (!btn) return;
+
+    btn.disabled = true;
+    btn.textContent = '🔍 全部分析中...';
+
+    // 依次对3个栏目运行智能分析
+    for (let i = 1; i <= 3; i++) {
+        if (window.columnManagers[i]) {
+            await window.columnManagers[i].runSmartAnalysis();
+            await new Promise(r => setTimeout(r, 300)); // 间隔一下避免UI响应不过来
+        }
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🤖 全部智能策略分析';
 }
 
 // ============================================================
@@ -547,6 +556,12 @@ document.addEventListener('DOMContentLoaded', function() {
         window.columnManagers[i] = new ColumnManager(String(i));
     }
 
+    // 绑定统一智能分析按钮
+    const allAnalysisBtn = document.getElementById('all-smart-analysis-btn');
+    if (allAnalysisBtn) {
+        allAnalysisBtn.addEventListener('click', runAllSmartAnalysis);
+    }
+
     loadAllData();
 });
 
@@ -787,7 +802,6 @@ function updateTable() {
                 <td>${rate.toFixed(4)}</td>
                 <td class="color-development">${devMarketCapCNY.toFixed(2)}</td>
                 <td>${(ratio * 100).toFixed(2)}%</td>
-                <td>-</td>
             </tr>
         `;
     }).join('');
