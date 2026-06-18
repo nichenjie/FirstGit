@@ -656,38 +656,117 @@ button:hover {
     color: #4ecdc4;
 }
 
-.tier2-config {
-    margin-top: 8px;
-    padding: 8px;
-    background: #252540;
-    border-radius: 4px;
-}
-.tier2-config summary {
-    cursor: pointer;
-    color: #888;
-    font-size: 12px;
-}
-.config-row {
+/* 三栏策略布局 */
+.strategy-columns {
     display: flex;
     gap: 12px;
-    margin-top: 8px;
 }
-.config-row label {
+
+.strategy-column {
+    flex: 1;
+    background: #16213e;
+    border-radius: 12px;
+    padding: 12px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.column-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.column-header h4 {
+    color: #00d9ff;
+    font-size: 14px;
+    margin: 0;
+}
+
+.column-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.column-controls label {
     font-size: 12px;
-    color: #ccc;
+    color: #aaa;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
-button.period-tag.tier2 {
-    background: #1a2e3a;
-    border-color: #1890ff;
-    color: #1890ff;
+
+.column-controls select,
+.column-controls input[type="number"] {
+    background: #0f3460;
+    border: 1px solid #00d9ff44;
+    border-radius: 4px;
+    color: #eee;
+    padding: 4px 6px;
+    font-size: 12px;
 }
-button.period-tag.tier1 {
-    background: #1a2e1a;
-    border-color: #52c41a;
-    color: #52c41a;
+
+.column-controls input[type="number"] {
+    width: 50px;
+}
+
+.column-chart-container {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+}
+
+.percentile-chart {
+    height: 280px;
+}
+
+.smart-analysis-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.smart-result {
+    padding: 8px 10px;
+    background: #0f3460;
+    border-radius: 6px;
+    border: 1px solid #00d9ff44;
+    min-height: 40px;
+}
+
+.signal-dates {
+    font-size: 12px;
+    color: #aaa;
+    min-height: 24px;
+}
+
+.signal-returns {
+    background: #0f346033;
+    border-radius: 6px;
+    padding: 8px;
+    flex: 1;
+    overflow-y: auto;
+    max-height: 200px;
+}
+
+.signal-returns-content {
+    font-size: 12px;
 }
 
 @media (max-width: 1200px) {
+    .strategy-columns {
+        flex-direction: column;
+    }
+    .strategy-column {
+        flex: none;
+        width: 100%;
+    }
+    .percentile-chart {
+        height: 250px;
+    }
     .main-layout {
         flex-direction: column;
         height: auto;
