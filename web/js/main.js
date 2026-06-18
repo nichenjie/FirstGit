@@ -241,9 +241,8 @@ function findSignalsForColumn(columnId, periodYears, lowPct, highPct) {
     const { controlData } = globalData;
     if (controlData.length === 0) return null;
 
-    // 计算截止日期
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    // 计算截止日期（使用毫秒计算支持小数年份）
+    const cutoffDate = new Date(Date.now() - periodYears * 365 * 24 * 60 * 60 * 1000);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
 
     // 过滤周期内的数据
@@ -310,8 +309,7 @@ function analyzeForColumn(columnId, periodYears) {
     const { controlData, developmentData, ratioMap } = globalData;
     if (controlData.length === 0) return { found: false };
 
-    const cutoffDate = new Date();
-    cutoffDate.setFullYear(cutoffDate.getFullYear() - periodYears);
+    const cutoffDate = new Date(Date.now() - periodYears * 365 * 24 * 60 * 60 * 1000);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
 
     const periodData = controlData.filter(ctrl => ctrl.date >= cutoffDateStr);
